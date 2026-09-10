@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly Borg Backup Integrity janitor (__APP__)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=600
+Persistent=true
+Unit=__APP__-janitor.service
+
+[Install]
+WantedBy=timers.target

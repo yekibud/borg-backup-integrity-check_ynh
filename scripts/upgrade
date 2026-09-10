@@ -1,0 +1,52 @@
+#!/bin/bash
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# STOP TIMERS DURING UPGRADE
+#=================================================
+ynh_script_progression "Stopping $app timers..."
+
+systemctl stop "$app.timer" 2>/dev/null || true
+systemctl stop "$app-janitor.timer" 2>/dev/null || true
+
+#=================================================
+# ENSURE DOWNWARD COMPATIBILITY
+#=================================================
+ynh_script_progression "Ensuring downward compatibility..."
+
+bbic_set_default_settings
+ynh_app_setting_set_default --key=use_borg_ynh --value=1
+ynh_app_setting_set_default --key=cloud_provider --value=hetzner
+ynh_app_setting_set_default --key=restore_mode --value=sampled
+ynh_app_setting_set_default --key=sample_size --value=20
+ynh_app_setting_set_default --key=schedule_enabled --value=1
+ynh_app_setting_set_default --key=schedule_time --value="09:00"
+ynh_app_setting_set_default --key=report_email --value=""
+
+#=================================================
+# UPGRADE THE APPLICATION
+#=================================================
+ynh_script_progression "Upgrading $app sources..."
+
+bbic_setup_directories
+bbic_deploy_sources
+bbic_generate_keys
+
+#=================================================
+# REAPPLY SYSTEM CONFIGURATION
+#=================================================
+ynh_script_progression "Upgrading system configurations related to $app..."
+
+ynh_config_add_systemd
+ynh_config_add_systemd --service="$app-janitor" --template="janitor.service"
+bbic_register_service
+bbic_apply_schedule
+ynh_config_add_logrotate "$bbic_log_dir"
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+
+ynh_script_progression "Upgrade of $app completed"

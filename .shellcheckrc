@@ -1,0 +1,4 @@
+# YunoHost app scripts: settings and helpers are injected by the core (app, install_dir, ...).
+source-path=SCRIPTDIR
+external-sources=true
+disable=SC2154

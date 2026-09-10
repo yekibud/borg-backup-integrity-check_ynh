@@ -1,0 +1,17 @@
+#!/bin/bash
+
+source ../settings/scripts/_common.sh
+source /usr/share/yunohost/helpers
+
+ynh_print_info "Declaring files to be backed up..."
+
+ynh_backup "$install_dir"
+ynh_backup "$data_dir"
+ynh_backup "$bbic_etc_dir"
+ynh_backup "/etc/systemd/system/$app.service"
+ynh_backup "/etc/systemd/system/$app.timer"
+ynh_backup "/etc/systemd/system/$app-janitor.service"
+ynh_backup "/etc/systemd/system/$app-janitor.timer"
+ynh_backup "/etc/logrotate.d/$app"
+
+ynh_print_info "Backup script completed for $app. (YunoHost will then actually copy those files to the archive)."

@@ -1,0 +1,30 @@
+[project]
+name = "borg-backup-integrity-check"
+version = "0.1.0"
+description = "Automated practical integrity testing of Borg backups created by YunoHost"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+
+# The package is not pip-installed on YunoHost servers: the YunoHost install
+# script copies `sources/borg_backup_integrity_check` into the app install dir
+# and runtime dependencies are Debian packages declared in manifest.toml.
+# This file only configures local development tooling.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["sources"]
+addopts = "-q -ra"
+markers = [
+    "borg: requires a local borg binary (level 3 synthetic integration)",
+    "vm: requires a local VirtualBox YunoHost VM (level 2/4)",
+    "live_provider: creates real, billable cloud resources (level 5, explicit opt-in)",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["sources", "tests", "dev"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["E501", "SIM108", "B008"]

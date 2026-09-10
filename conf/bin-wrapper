@@ -1,0 +1,6 @@
+#!/bin/bash
+# Launcher for the __APP__ command line interface (installed as /usr/local/bin/borg-backup-integrity-check).
+export PYTHONPATH="__INSTALL_DIR__${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+export BBIC_APP_ID="__APP__"
+exec /usr/bin/python3 -m borg_backup_integrity_check "$@"

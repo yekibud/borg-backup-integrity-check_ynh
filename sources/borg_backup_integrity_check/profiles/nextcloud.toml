@@ -1,0 +1,12 @@
+# Nextcloud: user files live in <data_dir>/<user>/files; previews, versions and trash are derivative.
+match_ids = ["nextcloud"]
+kind = "file"
+
+[large_data]
+roots = ["__DATA_DIR__"]
+exclude_dirs = ["appdata_*", "files_versions", "files_trashbin", "files_external", "uploads", "cache", "updater-*"]
+exclude_files = ["*.ocTransferId*", ".ocdata", "nextcloud.log", "index.html"]
+include_globs = ["*/files/**"]
+
+[verify]
+http_ok_codes = [200, 302, 303]

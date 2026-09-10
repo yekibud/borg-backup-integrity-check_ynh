@@ -1,0 +1,40 @@
+#!/bin/bash
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# DESTROY LEFTOVER CLOUD RESOURCES (best effort, credentials still available here)
+#=================================================
+ynh_script_progression "Destroying leftover restore servers (if any)..."
+
+if [ -x "$bbic_cli" ]; then
+    if ! "$bbic_cli" destroy --all; then
+        ynh_print_warn "Some temporary cloud resources could not be destroyed automatically. Check your provider console for resources labelled 'bbic-managed'."
+    fi
+fi
+
+#=================================================
+# REMOVE SYSTEM CONFIGURATION
+#=================================================
+ynh_script_progression "Removing system configurations related to $app..."
+
+systemctl disable --now "$app.timer" --quiet 2>/dev/null || true
+systemctl disable --now "$app-janitor.timer" --quiet 2>/dev/null || true
+ynh_safe_rm "/etc/systemd/system/$app.timer"
+ynh_safe_rm "/etc/systemd/system/$app-janitor.timer"
+bbic_unregister_service
+ynh_config_remove_systemd
+ynh_config_remove_systemd "$app-janitor"
+ynh_config_remove_logrotate
+systemctl daemon-reload
+
+ynh_safe_rm "$bbic_cli"
+ynh_safe_rm "$bbic_etc_dir"
+ynh_safe_rm "$bbic_log_dir"
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+
+ynh_script_progression "Removal of $app completed"

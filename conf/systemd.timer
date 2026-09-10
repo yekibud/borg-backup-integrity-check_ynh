@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Borg backup integrity check regularly (__APP__)
+
+[Timer]
+OnCalendar=__ON_CALENDAR__
+RandomizedDelaySec=300
+Persistent=true
+Unit=__APP__.service
+
+[Install]
+WantedBy=timers.target

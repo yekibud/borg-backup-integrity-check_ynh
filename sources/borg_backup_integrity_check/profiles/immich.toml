@@ -1,0 +1,11 @@
+# Immich: originals are stored under library/ and upload/; thumbs, encoded videos and profile pictures are generated.
+match_ids = ["immich"]
+kind = "media"
+
+[large_data]
+roots = ["__DATA_DIR__"]
+exclude_dirs = ["thumbs", "encoded-video", "profile", "backups"]
+include_globs = ["library/**", "upload/**"]
+
+[verify]
+http_ok_codes = [200, 302, 303]

@@ -1,0 +1,34 @@
+#:schema https://raw.githubusercontent.com/YunoHost/apps/main/schemas/tests.v1.schema.json
+
+test_format = 1.0
+
+[default]
+
+    # The CI has no cloud credentials: install with a dummy token, which is stored but
+    # only validated (with a warning, not a failure) during the install.
+    args.cloud_provider = "hetzner"
+    args.hetzner_token = "0000000000000000000000000000000000000000000000000000000000000000"
+    args.hetzner_location = "fsn1"
+    args.hetzner_server_type = "auto"
+    args.use_borg_ynh = 0
+    args.borg_repository = "ssh://sam@domain.tld:22/~/backup"
+    args.borg_passphrase = "A_Passphrase"
+    args.restore_mode = "sampled"
+    args.sample_size = 20
+    args.schedule_enabled = 1
+    args.schedule_time = "09:00"
+    args.report_email = ""
+
+[digitalocean]
+    args.cloud_provider = "digitalocean"
+    args.digitalocean_token = "dop_v1_0000000000000000000000000000000000000000000000000000000000000000"
+    args.digitalocean_region = "fra1"
+    args.digitalocean_size = "auto"
+    args.use_borg_ynh = 0
+    args.borg_repository = "ssh://sam@domain.tld:22/~/backup"
+    args.borg_passphrase = "A_Passphrase"
+    args.restore_mode = "sampled"
+    args.sample_size = 20
+    args.schedule_enabled = 0
+    args.schedule_time = "09:00"
+    args.report_email = "admin@domain.tld"

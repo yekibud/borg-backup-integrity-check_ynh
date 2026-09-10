@@ -1,0 +1,77 @@
+#!/bin/bash
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# INITIALIZE AND STORE SETTINGS
+#=================================================
+ynh_script_progression "Storing installation settings..."
+
+bbic_set_default_settings
+
+# The "app" question stores "_none" when nothing is selected.
+if [ "${borg_app:-}" == "_none" ]; then
+    borg_app=""
+    ynh_app_setting_set --key=borg_app --value=""
+fi
+
+if [ "$use_borg_ynh" != "1" ] && [ -z "${borg_repository:-}" ]; then
+    ynh_die "A Borg repository is required when the Borg app configuration is not reused."
+fi
+if [ "$use_borg_ynh" != "1" ] && [ -z "${borg_passphrase:-}" ]; then
+    ynh_die "The Borg repository passphrase is required when the Borg app configuration is not reused."
+fi
+if [ "$cloud_provider" == "hetzner" ] && [ -z "${hetzner_token:-}" ]; then
+    ynh_die "A Hetzner Cloud API token is required for the Hetzner provider."
+fi
+if [ "$cloud_provider" == "digitalocean" ] && [ -z "${digitalocean_token:-}" ]; then
+    ynh_die "A DigitalOcean API token is required for the DigitalOcean provider."
+fi
+
+#=================================================
+# INSTALL THE APPLICATION
+#=================================================
+ynh_script_progression "Installing $app..."
+
+bbic_setup_directories
+bbic_deploy_sources
+bbic_generate_keys
+
+#=================================================
+# STORE SECRETS (never in app settings)
+#=================================================
+ynh_script_progression "Storing credentials securely..."
+
+bbic_store_secret hetzner_token "${hetzner_token:-}"
+bbic_store_secret digitalocean_token "${digitalocean_token:-}"
+bbic_store_secret borg_passphrase "${borg_passphrase:-}"
+
+#=================================================
+# SYSTEM CONFIGURATION
+#=================================================
+ynh_script_progression "Adding system configurations related to $app..."
+
+ynh_config_add_systemd
+ynh_config_add_systemd --service="$app-janitor" --template="janitor.service"
+bbic_register_service
+bbic_apply_schedule
+ynh_config_add_logrotate "$bbic_log_dir"
+
+#=================================================
+# VALIDATE CONFIGURATION (warnings only: the network may be unavailable in CI)
+#=================================================
+ynh_script_progression "Testing Borg access and provider credentials..."
+
+if ! "$bbic_cli" test-config borg; then
+    ynh_print_warn "Borg repository access could not be verified. Check the configuration panel ('Test Borg connection')."
+fi
+if ! "$bbic_cli" test-config provider; then
+    ynh_print_warn "Cloud provider credentials could not be verified. Check the configuration panel ('Test provider credentials')."
+fi
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+
+ynh_script_progression "Installation of $app completed"

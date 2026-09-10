@@ -1,0 +1,226 @@
+#!/bin/bash
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+ynh_abort_if_errors
+
+#=================================================
+# HELPERS
+#=================================================
+
+_bbic_json_field() {
+    # usage: _bbic_json_field '<json>' key
+    python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get(sys.argv[1], ""))' "$2" <<< "$1" 2>/dev/null
+}
+
+_bbic_secret_markdown() {
+    local name="$1"
+    local status
+    status=$("$bbic_cli" secret status "$name" --json 2>/dev/null || echo '{}')
+    if grep -q '"configured": true' <<< "$status"; then
+        local fp
+        fp=$(python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]]["fingerprint"])' "$name" <<< "$status" 2>/dev/null)
+        echo "ask: \"**Configured** (fingerprint \`${fp}\`). Enter a value below only to replace it.\""
+    else
+        echo 'ask: "**Not configured.** Enter a value below."'
+    fi
+}
+
+# Emit "choices:" YAML for a select from the provider catalog, always including the current value.
+# usage: _bbic_catalog_choices regions|sizes <setting> <provider> [extra_choice]
+_bbic_catalog_choices() {
+    local what="$1" key="$2" provider="$3" extra="${4:-}"
+    local current="${old[$key]:-}"
+    "$bbic_cli" catalog "$what" --provider "$provider" --ynh-choices --current "$current" ${extra:+--extra "$extra"} 2>/dev/null \
+        || printf 'choices:\n  %s: "%s (catalogue unavailable)"\nvalue: "%s"\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$current")" "$current" "$current"
+}
+
+_bbic_start_run() {
+    local mode="$1"
+    local retain_flag=""
+    if [ "${manual_retain:-0}" == "1" ] || [ "${manual_retain:-}" == "true" ]; then
+        retain_flag="--retain"
+    fi
+    local unit
+    unit="$app-manual-$(date +%Y%m%d%H%M%S)"
+    # shellcheck disable=SC2086
+    systemd-run --unit="$unit" --description="Manual $app run ($mode)" --property="StandardOutput=append:$bbic_log_dir/$app.log" \
+        "$bbic_cli" run --mode "$mode" --email --quiet $retain_flag
+    ynh_print_info "Integrity check started in the background (unit $unit, mode $mode). Follow it with: journalctl -u $unit -f ; the report will be emailed and is available with 'borg-backup-integrity-check report'."
+}
+
+#=================================================
+# GETTERS
+#=================================================
+
+get__borg_status() {
+    local info
+    info=$("$bbic_cli" show-config --json 2>/dev/null || echo '{}')
+    local source
+    source=$(_bbic_json_field "$info" borg_source)
+    if [[ "$source" == unresolved* || -z "$source" ]]; then
+        printf 'style: warning\nask:\n  en: "Borg source is not resolved yet: %s"\n' "${source:-unknown}"
+    else
+        printf 'style: info\nask:\n  en: "Using %s"\n' "$source"
+    fi
+}
+
+get__borg_passphrase_status() { _bbic_secret_markdown borg_passphrase; }
+get__hetzner_token_status() { _bbic_secret_markdown hetzner_token; }
+get__digitalocean_token_status() { _bbic_secret_markdown digitalocean_token; }
+
+get__borg_public_key() {
+    local pub="$bbic_etc_dir/keys/borg_repository_ed25519.pub"
+    if [ -f "$pub" ]; then
+        echo "ask: \"Authorize this key on the repository server to use the dedicated key: \`$(cat "$pub")\`\""
+    else
+        echo 'ask: "No dedicated key generated yet (reinstall or upgrade the app)."'
+    fi
+}
+
+get__borg_app() {
+    local current="${old[borg_app]:-}"
+    echo "choices:"
+    echo '  "": "auto (first installed Borg app)"'
+    local dir
+    for dir in /etc/yunohost/apps/borg /etc/yunohost/apps/borg__*; do
+        [ -f "$dir/settings.yml" ] || continue
+        local id repo
+        id=$(basename "$dir")
+        repo=$(ynh_app_setting_get --app="$id" --key=repository 2>/dev/null || true)
+        echo "  \"$id\": \"$id (${repo:-repository unknown})\""
+    done
+    if [ -n "$current" ] && [ ! -f "/etc/yunohost/apps/$current/settings.yml" ]; then
+        echo "  \"$current\": \"$current (not installed)\""
+    fi
+    echo "value: \"$current\""
+}
+
+get__hetzner_location() { _bbic_catalog_choices regions hetzner_location hetzner; }
+get__hetzner_server_type() { _bbic_catalog_choices sizes hetzner_server_type hetzner auto; }
+get__digitalocean_region() { _bbic_catalog_choices regions digitalocean_region digitalocean; }
+get__digitalocean_size() { _bbic_catalog_choices sizes digitalocean_size digitalocean auto; }
+
+get__schedule_status() {
+    local next calendar
+    next=$(systemctl show "$app.timer" -p NextElapseUSecRealtime --value 2>/dev/null)
+    calendar=$(systemctl show "$app.timer" -p TimersCalendar --value 2>/dev/null | sed 's/ ;.*//')
+    if systemctl is-enabled "$app.timer" >/dev/null 2>&1; then
+        echo "ask: \"Timer enabled: \`${calendar}\` - next run ${next:-unknown}\""
+    else
+        echo 'ask: "Timer disabled: checks only run manually."'
+    fi
+}
+
+get__last_run() {
+    local status
+    status=$("$bbic_cli" status 2>/dev/null | sed 's/^/    /')
+    if [ -z "$status" ]; then
+        echo 'ask: "*No integrity check has run yet.*"'
+        return
+    fi
+    local report="" path
+    path=$("$bbic_cli" status --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin).get("latest_run") or {}; print(d.get("report_path") or "")' 2>/dev/null)
+    if [ -n "$path" ] && [ -f "$path" ]; then
+        report=$(head -n 40 "$path" | sed 's/^/    /')
+    fi
+    printf 'ask: |-\n%s\n\n%s\n' "$status" "$report"
+}
+
+#=================================================
+# VALIDATORS
+#=================================================
+
+validate__borg_repository() {
+    if [ "${use_borg_ynh:-1}" != "1" ] && [ "${use_borg_ynh:-1}" != "true" ] && [ -z "${borg_repository:-}" ]; then
+        echo "A repository URL is required when the Borg app configuration is not reused"
+    fi
+}
+
+validate__components() {
+    if [[ ! "${components:-all}" =~ ^[A-Za-z0-9_,.[:space:]-]+$ ]]; then
+        echo "Use 'all' or a comma separated list of app ids / system parts"
+    fi
+}
+
+validate__never_restore_apps() {
+    if [[ -n "${never_restore_apps:-}" && ! "${never_restore_apps}" =~ ^[A-Za-z0-9_,.[:space:]-]*$ ]]; then
+        echo "Use a comma separated list of app ids"
+    fi
+}
+
+#=================================================
+# SETTERS
+#=================================================
+
+_bbic_set_secret_from_form() {
+    # Blank (or the literal "None" the core sends for untouched password fields) keeps the stored secret.
+    local name="$1"
+    local value="$2"
+    local xtrace_enable
+    xtrace_enable=$(set +o | grep xtrace)
+    set +o xtrace
+    if [[ -n "$value" && "$value" != "None" ]]; then
+        printf '%s' "$value" | "$bbic_cli" secret set "$name" --stdin >/dev/null
+        ynh_print_info "Stored a new value for $name"
+    fi
+    eval "$xtrace_enable"
+}
+
+set__borg_passphrase() { _bbic_set_secret_from_form borg_passphrase "${borg_passphrase:-}"; }
+set__hetzner_token() { _bbic_set_secret_from_form hetzner_token "${hetzner_token:-}"; }
+set__digitalocean_token() { _bbic_set_secret_from_form digitalocean_token "${digitalocean_token:-}"; }
+
+set__borg_app() {
+    local value="${borg_app:-}"
+    [ "$value" == "_none" ] && value=""
+    ynh_app_setting_set --key=borg_app --value="$value"
+}
+
+_bbic_schedule_setter() {
+    local key="$1"
+    ynh_app_setting_set --key="$key" --value="${!key}"
+    bbic_apply_schedule
+    ynh_print_info "Schedule updated: $(bbic_on_calendar) (enabled: ${schedule_enabled:-1})"
+}
+
+set__schedule_enabled() { _bbic_schedule_setter schedule_enabled; }
+set__schedule_frequency() { _bbic_schedule_setter schedule_frequency; }
+set__schedule_weekday() { _bbic_schedule_setter schedule_weekday; }
+set__schedule_time() { _bbic_schedule_setter schedule_time; }
+
+#=================================================
+# ACTIONS
+#=================================================
+
+run__test_borg() {
+    ynh_print_info "Testing Borg repository access..."
+    "$bbic_cli" test-config borg || ynh_die "Borg repository test failed (see above)"
+}
+
+run__test_provider() {
+    ynh_print_info "Testing cloud provider credentials..."
+    "$bbic_cli" test-config provider || ynh_die "Cloud provider test failed (see above)"
+}
+
+run__run_sampled() { _bbic_start_run sampled; }
+run__run_full() { _bbic_start_run full; }
+
+run__show_status() {
+    "$bbic_cli" status
+    "$bbic_cli" report 2>/dev/null | head -n 60 || true
+}
+
+run__destroy_host() {
+    ynh_print_info "Destroying retained/leftover restore servers..."
+    "$bbic_cli" destroy --all
+}
+
+run__cleanup_stale() {
+    ynh_print_info "Looking for stale cloud resources..."
+    "$bbic_cli" cleanup --yes
+}
+
+#=================================================
+ynh_app_config_run "$1"

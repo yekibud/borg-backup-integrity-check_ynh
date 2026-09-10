@@ -1,0 +1,14 @@
+[Unit]
+Description=Borg Backup Integrity janitor: destroy expired/stale restore servers (__APP__)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=LANG=C.UTF-8
+ExecStart=/usr/local/bin/borg-backup-integrity-check cleanup --yes
+TimeoutStartSec=30m
+StandardOutput=append:/var/log/__APP__/__APP__.log
+StandardError=inherit

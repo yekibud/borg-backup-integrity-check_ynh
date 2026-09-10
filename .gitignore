@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Development-only local state (never commit)
+dev/local/
+dev/.env
+.env
+*.local.toml
+*.local.env
+
+# Test artefacts
+tests/.tmp/
+/tmp/

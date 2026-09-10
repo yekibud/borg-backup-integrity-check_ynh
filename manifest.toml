@@ -1,0 +1,219 @@
+#:schema https://raw.githubusercontent.com/YunoHost/apps/main/schemas/manifest.v2.schema.json
+
+packaging_format = 2
+
+id = "borg-backup-integrity-check"
+name = "Borg Backup Integrity"
+description.en = "Regularly proves your Borg backups are usable: restores them on a disposable cloud server, samples recent real data and warns about suspicious backup changes"
+description.fr = "Vérifie régulièrement que vos sauvegardes Borg sont utilisables : restauration sur un serveur cloud jetable, échantillon de données récentes et alertes sur les changements suspects"
+
+version = "0.1.0~ynh1"
+
+maintainers = []
+
+[upstream]
+license = "GPL-3.0-or-later"
+code = "https://github.com/YunoHost-Apps/borg-backup-integrity-check_ynh"
+admindoc = "https://github.com/YunoHost-Apps/borg-backup-integrity-check_ynh/blob/main/doc/ADMIN.md"
+
+[integration]
+yunohost = ">= 12.1.28"
+helpers_version = "2.1"
+architectures = "all"
+multi_instance = false
+
+ldap = "not_relevant"
+sso = "not_relevant"
+
+disk = "100M"
+ram.build = "100M"
+ram.runtime = "300M"
+
+[install]
+    [install.cloud_provider]
+    ask.en = "Cloud provider used to create the disposable restore server"
+    ask.fr = "Fournisseur cloud utilisé pour créer le serveur de restauration jetable"
+    help.en = "A fresh, inexpensive virtual machine is created for every integrity check and destroyed afterwards. Billing is per hour; a sampled check typically costs a few cents."
+    help.fr = "Une petite machine virtuelle est créée à chaque vérification puis détruite. La facturation est horaire ; un test échantillonné coûte typiquement quelques centimes."
+    type = "select"
+    choices.hetzner = "Hetzner Cloud"
+    choices.digitalocean = "DigitalOcean"
+    default = "hetzner"
+
+    [install.hetzner_token]
+    ask.en = "Hetzner Cloud API token (read & write)"
+    ask.fr = "Jeton d'API Hetzner Cloud (lecture et écriture)"
+    help.en = "Create it in the Hetzner Cloud Console under the project you want to use (Security > API tokens). The token is stored in a root-only file, never in the app settings."
+    help.fr = "Créez-le dans la console Hetzner Cloud dans le projet à utiliser (Sécurité > Jetons d'API). Le jeton est stocké dans un fichier réservé à root, jamais dans les réglages de l'application."
+    type = "password"
+    optional = true
+    visible = "cloud_provider == 'hetzner'"
+
+    [install.hetzner_location]
+    ask.en = "Hetzner location"
+    ask.fr = "Localisation Hetzner"
+    help.en = "Location name such as fsn1, nbg1, hel1, ash, hil or sin. It is validated against the API; the list of valid locations is shown in the configuration panel."
+    help.fr = "Nom de localisation tel que fsn1, nbg1, hel1, ash, hil ou sin. Il est validé via l'API ; la liste complète est proposée dans le panneau de configuration."
+    type = "string"
+    default = "fsn1"
+    pattern.regexp = '^[a-z0-9-]+$'
+    pattern.error = "Use the short Hetzner location name, e.g. fsn1"
+    visible = "cloud_provider == 'hetzner'"
+
+    [install.hetzner_server_type]
+    ask.en = "Hetzner server type"
+    ask.fr = "Type de serveur Hetzner"
+    help.en = "Keep 'auto' to pick the cheapest x86 type with enough RAM and disk for the selected restore, or name a type such as cx22."
+    help.fr = "Laissez 'auto' pour choisir le type x86 le moins cher avec assez de RAM et de disque, ou indiquez un type tel que cx22."
+    type = "string"
+    default = "auto"
+    visible = "cloud_provider == 'hetzner'"
+
+    [install.digitalocean_token]
+    ask.en = "DigitalOcean API token (read & write)"
+    ask.fr = "Jeton d'API DigitalOcean (lecture et écriture)"
+    help.en = "Create a personal access token with read and write scopes in the DigitalOcean control panel (API > Tokens). Stored in a root-only file."
+    help.fr = "Créez un jeton d'accès personnel avec les droits lecture et écriture (API > Tokens). Stocké dans un fichier réservé à root."
+    type = "password"
+    optional = true
+    visible = "cloud_provider == 'digitalocean'"
+
+    [install.digitalocean_region]
+    ask.en = "DigitalOcean region"
+    ask.fr = "Région DigitalOcean"
+    help.en = "Region slug such as fra1, ams3, lon1, nyc3, sfo3 or sgp1 (validated against the API)."
+    help.fr = "Identifiant de région tel que fra1, ams3, lon1, nyc3, sfo3 ou sgp1 (validé via l'API)."
+    type = "string"
+    default = "fra1"
+    pattern.regexp = '^[a-z0-9]+$'
+    pattern.error = "Use the region slug, e.g. fra1"
+    visible = "cloud_provider == 'digitalocean'"
+
+    [install.digitalocean_size]
+    ask.en = "DigitalOcean Droplet size"
+    ask.fr = "Taille du Droplet DigitalOcean"
+    help.en = "Keep 'auto' to pick the cheapest size with enough RAM and disk, or name a slug such as s-2vcpu-4gb."
+    help.fr = "Laissez 'auto' pour choisir la taille la moins chère suffisante, ou indiquez un identifiant tel que s-2vcpu-4gb."
+    type = "string"
+    default = "auto"
+    visible = "cloud_provider == 'digitalocean'"
+
+    [install.digitalocean_project]
+    ask.en = "DigitalOcean project (optional)"
+    ask.fr = "Projet DigitalOcean (optionnel)"
+    help.en = "Name or ID of the project the temporary Droplets should be created in. Leave empty for the default project."
+    help.fr = "Nom ou identifiant du projet dans lequel créer les Droplets temporaires. Laissez vide pour le projet par défaut."
+    type = "string"
+    optional = true
+    default = ""
+    visible = "cloud_provider == 'digitalocean'"
+
+    [install.use_borg_ynh]
+    ask.en = "Reuse the configuration of the installed Borg app (borg_ynh)?"
+    ask.fr = "Réutiliser la configuration de l'application Borg installée (borg_ynh) ?"
+    help.en = "Recommended: the repository, passphrase and SSH key of the Borg app are discovered automatically and never duplicated."
+    help.fr = "Recommandé : le dépôt, la phrase de passe et la clé SSH de l'application Borg sont découverts automatiquement et jamais dupliqués."
+    type = "boolean"
+    default = true
+
+    [install.borg_app]
+    ask.en = "Borg app instance to reuse"
+    ask.fr = "Instance de l'application Borg à réutiliser"
+    help.en = "Only relevant if several Borg app instances are installed; leave empty to use the first one."
+    help.fr = "Utile seulement si plusieurs instances de l'application Borg sont installées ; laissez vide pour utiliser la première."
+    type = "app"
+    filter = "match(id, '^borg(__[0-9]+)?$')"
+    optional = true
+    visible = "use_borg_ynh"
+
+    [install.borg_repository]
+    ask.en = "Borg repository to test"
+    ask.fr = "Dépôt Borg à tester"
+    help.en = "Repository URL as used by Borg, for example ssh://u123456@u123456.your-storagebox.de:23/./backup. Local paths are only usable if you also give a remote URL below."
+    help.fr = "URL du dépôt telle qu'utilisée par Borg, par exemple ssh://u123456@u123456.your-storagebox.de:23/./backup."
+    type = "string"
+    optional = true
+    example = "ssh://user@backup.example.org:22/./backup"
+    visible = "!use_borg_ynh"
+
+    [install.borg_passphrase]
+    ask.en = "Borg repository passphrase"
+    ask.fr = "Phrase de passe du dépôt Borg"
+    help.en = "Stored in a root-only file and used to read (never modify) the repository."
+    help.fr = "Stockée dans un fichier réservé à root et utilisée pour lire (jamais modifier) le dépôt."
+    type = "password"
+    optional = true
+    visible = "!use_borg_ynh"
+
+    [install.borg_repository_remote]
+    ask.en = "Repository URL as seen from the restore server (optional)"
+    ask.fr = "URL du dépôt vue depuis le serveur de restauration (optionnel)"
+    help.en = "Only needed when the disposable server must use a different URL than this server (for example a repository on a local path or private network)."
+    help.fr = "Nécessaire seulement si le serveur jetable doit utiliser une URL différente de celle de ce serveur (dépôt sur un chemin local ou un réseau privé)."
+    type = "string"
+    optional = true
+    default = ""
+
+    [install.restore_mode]
+    ask.en = "Default restore mode"
+    ask.fr = "Mode de restauration par défaut"
+    help.en = "Sampled: restore all configuration/databases and only the newest objects of large data (cheap, recommended). Full: conventional complete restore (needs a server large enough for all data)."
+    help.fr = "Échantillonné : restaure la configuration et les bases de données, plus seulement les objets les plus récents des données volumineuses (économique, recommandé). Complet : restauration intégrale classique."
+    type = "select"
+    choices.sampled = "Sampled (recommended)"
+    choices.full = "Full restore"
+    default = "sampled"
+
+    [install.sample_size]
+    ask.en = "Number of recent objects to retrieve per app/component"
+    ask.fr = "Nombre d'objets récents à récupérer par application/composant"
+    type = "number"
+    default = 20
+
+    [install.schedule_enabled]
+    ask.en = "Run integrity checks automatically?"
+    ask.fr = "Lancer les vérifications automatiquement ?"
+    type = "boolean"
+    default = true
+
+    [install.schedule_time]
+    ask.en = "Time of the daily check"
+    ask.fr = "Heure de la vérification quotidienne"
+    help.en = "Schedule it after your Borg backups have finished. Frequency (daily/weekly/monthly) can be changed in the configuration panel."
+    help.fr = "Programmez-la après la fin de vos sauvegardes Borg. La fréquence (quotidienne/hebdomadaire/mensuelle) se règle dans le panneau de configuration."
+    type = "time"
+    default = "09:00"
+    visible = "schedule_enabled"
+
+    [install.report_email]
+    ask.en = "Email address for reports (optional)"
+    ask.fr = "Adresse e-mail pour les rapports (optionnel)"
+    help.en = "Leave empty to send reports to the server administrators (root)."
+    help.fr = "Laissez vide pour envoyer les rapports aux administrateurs du serveur (root)."
+    type = "email"
+    optional = true
+    default = ""
+
+[resources]
+    [resources.system_user]
+
+    [resources.install_dir]
+    owner = "root:rwx"
+    group = "__APP__:r-x"
+
+    [resources.data_dir]
+    dir = "/var/lib/__APP__"
+    owner = "root:rwx"
+    group = "root:---"
+
+    [resources.permissions]
+
+    [resources.apt]
+    packages = [
+        "borgbackup",
+        "curl",
+        "openssh-client",
+        "python3-pil",
+        "python3-requests",
+        "python3-yaml",
+    ]

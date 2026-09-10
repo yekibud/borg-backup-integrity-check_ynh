@@ -1,0 +1,547 @@
+version = "1.0"
+
+[source]
+name.en = "Backup Source"
+name.fr = "Source des sauvegardes"
+
+    [source.status]
+    name = ""
+
+        [source.status.borg_status]
+        type = "alert"
+        style = "info"
+        ask = "Borg status is computed when the panel loads."
+        bind = "null"
+
+    [source.settings]
+    name.en = "Borg repository"
+    name.fr = "Dépôt Borg"
+
+        [source.settings.use_borg_ynh]
+        ask.en = "Reuse the configuration of the installed Borg app (borg_ynh)"
+        ask.fr = "Réutiliser la configuration de l'application Borg installée"
+        type = "boolean"
+        default = true
+
+        [source.settings.borg_app]
+        ask.en = "Borg app instance to reuse"
+        ask.fr = "Instance de l'application Borg à réutiliser"
+        help.en = "Installed Borg app instances are listed automatically; 'auto' uses the first one."
+        type = "select"
+        choices = []
+        visible = "use_borg_ynh"
+
+        [source.settings.borg_repository]
+        ask.en = "Borg repository to test"
+        ask.fr = "Dépôt Borg à tester"
+        type = "string"
+        optional = true
+        example = "ssh://user@backup.example.org:22/./backup"
+        visible = "!use_borg_ynh"
+
+        [source.settings.borg_passphrase_status]
+        ask = "Passphrase status"
+        type = "markdown"
+        bind = "null"
+        visible = "!use_borg_ynh"
+
+        [source.settings.borg_passphrase]
+        ask.en = "Replace the repository passphrase"
+        ask.fr = "Remplacer la phrase de passe du dépôt"
+        help.en = "Leave empty to keep the stored passphrase. The stored value is never displayed."
+        help.fr = "Laissez vide pour conserver la phrase de passe enregistrée. La valeur enregistrée n'est jamais affichée."
+        type = "password"
+        optional = true
+        bind = "null"
+        visible = "!use_borg_ynh"
+
+        [source.settings.borg_repository_remote]
+        ask.en = "Repository URL as seen from the restore server (optional)"
+        ask.fr = "URL du dépôt vue depuis le serveur de restauration (optionnel)"
+        help.en = "Only if the disposable server must reach the repository through a different URL than this server."
+        type = "string"
+        optional = true
+
+        [source.settings.borg_ssh_key]
+        ask.en = "SSH key used by the restore server to read the repository"
+        ask.fr = "Clé SSH utilisée par le serveur de restauration pour lire le dépôt"
+        help.en = "'auto' copies the Borg app's key to the disposable server for the duration of the check. 'dedicated' uses this app's own key: authorize the public key shown below on the repository server (append-only or read-only if possible)."
+        help.fr = "'auto' copie la clé de l'application Borg sur le serveur jetable le temps de la vérification. 'dedicated' utilise la clé propre à cette application : autorisez la clé publique ci-dessous sur le serveur du dépôt."
+        type = "select"
+        choices.auto = "Reuse the Borg app key (auto)"
+        choices.dedicated = "Dedicated key of this app"
+        default = "auto"
+
+        [source.settings.borg_public_key]
+        ask = "Dedicated public key"
+        type = "markdown"
+        bind = "null"
+
+        [source.settings.borg_remote_path]
+        ask.en = "Remote borg command (remote-path)"
+        help.en = "Optional BORG_REMOTE_PATH on the repository server (for example 'borg1'). Leave empty if unsure."
+        type = "string"
+        optional = true
+
+    [source.tests]
+    name.en = "Connection test"
+    name.fr = "Test de connexion"
+
+        [source.tests.test_borg]
+        ask.en = "Test Borg connection"
+        ask.fr = "Tester la connexion Borg"
+        type = "button"
+        style = "info"
+
+[provider]
+name.en = "Restore Provider"
+name.fr = "Fournisseur de restauration"
+
+    [provider.main]
+    name.en = "Cloud provider"
+    name.fr = "Fournisseur cloud"
+    help.en = "A disposable server is created for each check and destroyed afterwards. Credentials are stored in a root-only file and never displayed."
+    help.fr = "Un serveur jetable est créé à chaque vérification puis détruit. Les identifiants sont stockés dans un fichier réservé à root et jamais affichés."
+
+        [provider.main.cloud_provider]
+        ask.en = "Cloud provider"
+        ask.fr = "Fournisseur cloud"
+        type = "select"
+        choices.hetzner = "Hetzner Cloud"
+        choices.digitalocean = "DigitalOcean"
+
+        [provider.main.hetzner_token_status]
+        ask = "Hetzner credential"
+        type = "markdown"
+        bind = "null"
+        visible = "cloud_provider == 'hetzner'"
+
+        [provider.main.hetzner_token]
+        ask.en = "Replace the Hetzner API token"
+        ask.fr = "Remplacer le jeton d'API Hetzner"
+        help.en = "Leave empty to keep the stored token."
+        help.fr = "Laissez vide pour conserver le jeton enregistré."
+        type = "password"
+        optional = true
+        bind = "null"
+        visible = "cloud_provider == 'hetzner'"
+
+        [provider.main.hetzner_location]
+        ask.en = "Hetzner location"
+        ask.fr = "Localisation Hetzner"
+        help.en = "Locations are fetched from the Hetzner API (cached for a few hours)."
+        type = "select"
+        choices = []
+        visible = "cloud_provider == 'hetzner'"
+
+        [provider.main.hetzner_server_type]
+        ask.en = "Hetzner server type"
+        ask.fr = "Type de serveur Hetzner"
+        help.en = "'auto' picks the cheapest x86 type with enough RAM and disk for the planned restore."
+        type = "select"
+        choices = []
+        visible = "cloud_provider == 'hetzner'"
+
+        [provider.main.digitalocean_token_status]
+        ask = "DigitalOcean credential"
+        type = "markdown"
+        bind = "null"
+        visible = "cloud_provider == 'digitalocean'"
+
+        [provider.main.digitalocean_token]
+        ask.en = "Replace the DigitalOcean API token"
+        ask.fr = "Remplacer le jeton d'API DigitalOcean"
+        help.en = "Leave empty to keep the stored token."
+        type = "password"
+        optional = true
+        bind = "null"
+        visible = "cloud_provider == 'digitalocean'"
+
+        [provider.main.digitalocean_region]
+        ask.en = "DigitalOcean region"
+        ask.fr = "Région DigitalOcean"
+        type = "select"
+        choices = []
+        visible = "cloud_provider == 'digitalocean'"
+
+        [provider.main.digitalocean_size]
+        ask.en = "DigitalOcean Droplet size"
+        ask.fr = "Taille du Droplet DigitalOcean"
+        help.en = "'auto' picks the cheapest size with enough RAM and disk for the planned restore."
+        type = "select"
+        choices = []
+        visible = "cloud_provider == 'digitalocean'"
+
+        [provider.main.digitalocean_project]
+        ask.en = "DigitalOcean project (name or ID, optional)"
+        ask.fr = "Projet DigitalOcean (nom ou identifiant, optionnel)"
+        type = "string"
+        optional = true
+        visible = "cloud_provider == 'digitalocean'"
+
+        [provider.main.restore_volume]
+        ask.en = "Temporary block volume"
+        ask.fr = "Volume de stockage temporaire"
+        help.en = "'auto' attaches a volume only when the planned restore needs more disk than the server type offers (typical for full restores)."
+        type = "select"
+        choices.auto = "Only when needed (auto)"
+        choices.always = "Always attach a volume"
+        choices.never = "Never (fail if the server disk is too small)"
+        default = "auto"
+
+    [provider.tests]
+    name.en = "Credential test"
+    name.fr = "Test des identifiants"
+
+        [provider.tests.test_provider]
+        ask.en = "Test cloud-provider credentials"
+        ask.fr = "Tester les identifiants du fournisseur"
+        type = "button"
+        style = "info"
+
+[sampling]
+name.en = "Sampling"
+name.fr = "Échantillonnage"
+
+    [sampling.main]
+    name = ""
+
+        [sampling.main.restore_mode]
+        ask.en = "Default restore mode"
+        ask.fr = "Mode de restauration par défaut"
+        type = "select"
+        choices.sampled = "Sampled (core state + newest objects of large data)"
+        choices.full = "Full (conventional complete restore)"
+        default = "sampled"
+
+        [sampling.main.sample_size]
+        ask.en = "Recent objects to retrieve per app/component"
+        ask.fr = "Objets récents à récupérer par application/composant"
+        type = "number"
+        min = 1
+        max = 500
+        default = 20
+
+        [sampling.main.components]
+        ask.en = "Apps/components to test"
+        ask.fr = "Applications/composants à tester"
+        help.en = "'all', or a comma separated list of app ids and system parts (e.g. nextcloud, data_mail, conf_ldap). 'system' selects every system part."
+        help.fr = "'all', ou une liste séparée par des virgules d'identifiants d'applications et de parties système (ex. nextcloud, data_mail, conf_ldap)."
+        type = "string"
+        default = "all"
+
+        [sampling.main.borg_check_level]
+        ask.en = "Additional Borg consistency check"
+        ask.fr = "Vérification de cohérence Borg supplémentaire"
+        help.en = "'archives' checks the metadata of the tested archives (cheap). 'repository' also runs a repository check (can take long on big repositories)."
+        type = "select"
+        choices.none = "None"
+        choices.archives = "Archive metadata (recommended)"
+        choices.repository = "Archive metadata + repository check"
+        default = "archives"
+
+        [sampling.main.deep_check]
+        ask.en = "Dry-run extraction (reads and verifies data without storing it)"
+        ask.fr = "Extraction à blanc (lit et vérifie les données sans les stocker)"
+        help.en = "Validates that Borg can retrieve, decrypt and decompress additional objects without needing disk space on the restore server."
+        type = "select"
+        choices.none = "None"
+        choices.sampled_dry_run = "Random additional sample (recommended)"
+        choices.full_dry_run = "All large data (transfers everything, no disk needed)"
+        default = "sampled_dry_run"
+
+        [sampling.main.deep_check_sample]
+        ask.en = "Objects in the dry-run sample"
+        ask.fr = "Objets de l'échantillon d'extraction à blanc"
+        type = "number"
+        min = 10
+        max = 10000
+        default = 200
+        visible = "deep_check == 'sampled_dry_run'"
+
+[monitoring]
+name.en = "Manifest Monitoring"
+name.fr = "Surveillance du manifeste"
+
+    [monitoring.main]
+    name = ""
+    help.en = "Every run records a small manifest of the backup (sizes and object counts per component) and compares it with previous backups."
+    help.fr = "Chaque exécution enregistre un petit manifeste de la sauvegarde (tailles et nombres d'objets par composant) et le compare aux sauvegardes précédentes."
+
+        [monitoring.main.manifest_compare]
+        ask.en = "Compare the backup manifest with previous backups"
+        ask.fr = "Comparer le manifeste avec les sauvegardes précédentes"
+        type = "boolean"
+        default = true
+
+        [monitoring.main.warn_growth_pct]
+        ask.en = "Warn when a component grows by more than (%)"
+        ask.fr = "Alerter quand un composant grossit de plus de (%)"
+        type = "number"
+        min = 1
+        max = 1000
+        default = 40
+        visible = "manifest_compare"
+
+        [monitoring.main.warn_shrink_pct]
+        ask.en = "Warn when a component shrinks by more than (%)"
+        ask.fr = "Alerter quand un composant rétrécit de plus de (%)"
+        type = "number"
+        min = 1
+        max = 100
+        default = 20
+        visible = "manifest_compare"
+
+        [monitoring.main.baseline_mode]
+        ask.en = "Baselines"
+        ask.fr = "Références"
+        type = "select"
+        choices.previous = "Previous backup only"
+        choices.previous_and_rolling = "Previous backup + 7-day and 30-day medians"
+        default = "previous_and_rolling"
+        visible = "manifest_compare"
+
+        [monitoring.main.backup_max_age_hours]
+        ask.en = "Maximum age of the newest backup (hours)"
+        ask.fr = "Âge maximal de la sauvegarde la plus récente (heures)"
+        help.en = "An error is reported when no backup generation is younger than this."
+        type = "number"
+        min = 1
+        max = 8760
+        default = 36
+
+        [monitoring.main.history_retention_days]
+        ask.en = "Keep manifest history for (days)"
+        ask.fr = "Conserver l'historique des manifestes pendant (jours)"
+        type = "number"
+        min = 30
+        max = 3650
+        default = 400
+
+[schedule]
+name.en = "Schedule & Reporting"
+name.fr = "Planification et rapports"
+
+    [schedule.main]
+    name = ""
+
+        [schedule.main.schedule_enabled]
+        ask.en = "Run integrity checks automatically"
+        ask.fr = "Lancer les vérifications automatiquement"
+        type = "boolean"
+        default = true
+
+        [schedule.main.schedule_frequency]
+        ask.en = "Frequency"
+        ask.fr = "Fréquence"
+        type = "select"
+        choices.daily = "Daily"
+        choices.weekly = "Weekly"
+        choices.monthly = "Monthly (1st of the month)"
+        default = "daily"
+        visible = "schedule_enabled"
+
+        [schedule.main.schedule_weekday]
+        ask.en = "Day of the week"
+        ask.fr = "Jour de la semaine"
+        type = "select"
+        choices = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        default = "Mon"
+        visible = "schedule_enabled && schedule_frequency == 'weekly'"
+
+        [schedule.main.schedule_time]
+        ask.en = "Time"
+        ask.fr = "Heure"
+        help.en = "Schedule the check after your Borg backups have finished."
+        type = "time"
+        default = "09:00"
+        visible = "schedule_enabled"
+
+        [schedule.main.schedule_status]
+        ask = "Timer status"
+        type = "markdown"
+        bind = "null"
+
+        [schedule.main.report_email]
+        ask.en = "Email address for reports"
+        ask.fr = "Adresse e-mail pour les rapports"
+        help.en = "Leave empty to email the server administrators (root)."
+        type = "email"
+        optional = true
+
+        [schedule.main.report_on]
+        ask.en = "Email reports"
+        ask.fr = "Envoyer les rapports"
+        type = "select"
+        choices.always = "After every scheduled check"
+        choices.problems_only = "Only when there are warnings or errors"
+        default = "always"
+
+        [schedule.main.retain_hours]
+        ask.en = "Keep the restore server after a manual check for (hours)"
+        ask.fr = "Conserver le serveur de restauration après une vérification manuelle pendant (heures)"
+        help.en = "Applies to manual checks started with 'retain'. The server is destroyed automatically afterwards. Scheduled checks always destroy the server immediately."
+        type = "number"
+        min = 1
+        max = 168
+        default = 4
+
+        [schedule.main.keep_runs]
+        ask.en = "Reports to keep"
+        ask.fr = "Rapports à conserver"
+        type = "number"
+        min = 1
+        max = 1000
+        default = 30
+
+    [schedule.last]
+    name.en = "Latest check"
+    name.fr = "Dernière vérification"
+
+        [schedule.last.last_run]
+        ask = ""
+        type = "markdown"
+        bind = "null"
+
+[operations]
+name.en = "Run & Maintenance"
+name.fr = "Exécution et maintenance"
+
+    [operations.run]
+    name.en = "Run an integrity check now"
+    name.fr = "Lancer une vérification maintenant"
+    help.en = "The check runs in the background (20-60 minutes). The report is emailed according to your settings and available under 'Latest check' and with `borg-backup-integrity-check report`."
+    help.fr = "La vérification s'exécute en arrière-plan (20 à 60 minutes). Le rapport est envoyé par e-mail selon vos réglages et disponible via `borg-backup-integrity-check report`."
+
+        [operations.run.manual_retain]
+        ask.en = "Keep the restore server for manual inspection afterwards"
+        ask.fr = "Conserver ensuite le serveur de restauration pour inspection manuelle"
+        type = "boolean"
+        default = false
+        bind = "null"
+
+        [operations.run.run_sampled]
+        ask.en = "Run sampled integrity check now"
+        ask.fr = "Lancer une vérification échantillonnée maintenant"
+        type = "button"
+        style = "success"
+
+        [operations.run.run_full]
+        ask.en = "Run full integrity check now"
+        ask.fr = "Lancer une vérification complète maintenant"
+        type = "button"
+        style = "info"
+
+    [operations.maintenance]
+    name.en = "Maintenance"
+    name.fr = "Maintenance"
+
+        [operations.maintenance.show_status]
+        ask.en = "Show latest status"
+        ask.fr = "Afficher le dernier statut"
+        type = "button"
+        style = "info"
+
+        [operations.maintenance.destroy_host]
+        ask.en = "Destroy retained test server"
+        ask.fr = "Détruire le serveur de test conservé"
+        type = "button"
+        style = "danger"
+
+        [operations.maintenance.cleanup_stale]
+        ask.en = "Clean up stale test resources"
+        ask.fr = "Nettoyer les ressources de test obsolètes"
+        type = "button"
+        style = "danger"
+
+[advanced]
+name.en = "Advanced"
+name.fr = "Avancé"
+
+    [advanced.main]
+    name = ""
+
+        [advanced.main.yunohost_version_policy]
+        ask.en = "YunoHost version on the restore server"
+        ask.fr = "Version de YunoHost sur le serveur de restauration"
+        help.en = "'Match the backup' installs the major version that created the backup (12 = Debian 12 stable, 13 = Debian 13 testing)."
+        type = "select"
+        choices.match_backup = "Match the backup (recommended)"
+        choices."12" = "YunoHost 12 (Debian 12, stable)"
+        choices."13" = "YunoHost 13 (Debian 13, testing)"
+        default = "match_backup"
+
+        [advanced.main.archive_scheme]
+        ask.en = "Archive naming scheme"
+        ask.fr = "Schéma de nommage des archives"
+        help.en = "borg_ynh: one archive per component named <component>-<timestamp> (auto_conf-…, auto_<app>-…). single: every archive is a complete YunoHost backup."
+        type = "select"
+        choices.borg_ynh = "borg_ynh (one archive per component)"
+        choices.single = "Single archive per backup"
+        default = "borg_ynh"
+
+        [advanced.main.generation_window_hours]
+        ask.en = "Archives created within (hours) belong to the same backup generation"
+        ask.fr = "Les archives créées dans un intervalle de (heures) forment une même génération"
+        type = "number"
+        min = 1
+        max = 168
+        default = 12
+
+        [advanced.main.vm_min_memory_mb]
+        ask.en = "Minimum RAM of the restore server (MB)"
+        ask.fr = "RAM minimale du serveur de restauration (Mo)"
+        type = "number"
+        min = 2048
+        max = 262144
+        default = 4096
+
+        [advanced.main.vm_ssh_port]
+        ask.en = "Maintenance SSH port on the restore server"
+        ask.fr = "Port SSH de maintenance sur le serveur de restauration"
+        help.en = "A dedicated sshd listens on this port so the restored YunoHost SSH configuration cannot lock the checker out."
+        type = "number"
+        min = 1024
+        max = 65535
+        default = 22022
+
+        [advanced.main.prefer_ipv6]
+        ask.en = "Prefer IPv6 to reach the restore server"
+        ask.fr = "Préférer IPv6 pour joindre le serveur de restauration"
+        type = "boolean"
+        default = false
+
+        [advanced.main.keep_host_on_failure]
+        ask.en = "Keep the restore server when a scheduled check fails"
+        ask.fr = "Conserver le serveur de restauration quand une vérification planifiée échoue"
+        help.en = "Kept for the configured retention hours, then destroyed by the janitor timer."
+        type = "boolean"
+        default = false
+
+        [advanced.main.never_restore_apps]
+        ask.en = "Apps never restored on the test server"
+        ask.fr = "Applications jamais restaurées sur le serveur de test"
+        help.en = "Comma separated app ids. Backup tooling is excluded so the test server can never write into your real repository."
+        type = "string"
+        default = "borg,borgserver,borg-backup-integrity-check"
+
+        [advanced.main.borg_lock_wait]
+        ask.en = "Wait for a Borg repository lock up to (seconds)"
+        ask.fr = "Attendre un verrou Borg jusqu'à (secondes)"
+        type = "number"
+        min = 1
+        max = 86400
+        default = 900
+
+        [advanced.main.email_include_sender]
+        ask.en = "Include sender names in mail evidence"
+        ask.fr = "Inclure l'expéditeur dans les preuves de type courriel"
+        type = "boolean"
+        default = true
+
+        [advanced.main.log_level]
+        ask.en = "Log level"
+        type = "select"
+        choices.info = "Normal"
+        choices.debug = "Debug"
+        default = "info"
