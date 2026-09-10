@@ -16,11 +16,8 @@ fi
 if [ "$use_borg_ynh" != "1" ] && [ -z "${borg_passphrase:-}" ]; then
     ynh_die "The Borg repository passphrase is required when the Borg app configuration is not reused."
 fi
-if [ "$cloud_provider" == "hetzner" ] && [ -z "${hetzner_token:-}" ]; then
-    ynh_die "A Hetzner Cloud API token is required for the Hetzner provider."
-fi
-if [ "$cloud_provider" == "digitalocean" ] && [ -z "${digitalocean_token:-}" ]; then
-    ynh_die "A DigitalOcean API token is required for the DigitalOcean provider."
+if [ -z "${provider_token:-}" ]; then
+    ynh_die "An API token for the selected cloud provider ($cloud_provider) is required."
 fi
 
 #=================================================
@@ -37,8 +34,9 @@ bbic_generate_keys
 #=================================================
 ynh_script_progression "Storing credentials securely..."
 
-bbic_store_secret hetzner_token "${hetzner_token:-}"
-bbic_store_secret digitalocean_token "${digitalocean_token:-}"
+# One provider-neutral token question at install (a hidden password question crashes the
+# YunoHost 12.1 core); it is stored under the selected provider's name.
+bbic_store_secret "${cloud_provider}_token" "${provider_token:-}"
 bbic_store_secret borg_passphrase "${borg_passphrase:-}"
 
 #=================================================

@@ -38,8 +38,15 @@ prod_setup() {
     "$VM" ssh "$vm" 'bash -s' < "$HERE/synth/populate_prod.sh"
     log "running the borg_ynh backup now (systemctl start borg)"
     "$VM" ssh "$vm" 'systemctl start borg.service; sleep 2; tail -n 5 /var/log/borg/borg.log; /var/www/borg/wrapper/borg list --short' | tail -n 12
-    log "authorising the borg_ynh key for repository access from the target (restricted borg serve)"
-    "$VM" ssh "$vm" "pub=\$(cat /root/.ssh/id_borg_ed25519.pub); grep -qF \"\$pub\" /root/.ssh/authorized_keys 2>/dev/null || echo \"command=\\\"/var/www/borg/venv/bin/borg serve --restrict-to-repository $BORG_REPO_PATH\\\",restrict \$pub\" >> /root/.ssh/authorized_keys"
+}
+
+# The repository is a local path on prod, so borg_ynh has no SSH key: the target uses this app's
+# dedicated key, authorised on prod with a forced, repository-restricted `borg serve`.
+authorize_dedicated_key() {
+    local vm="$1"
+    log "authorising the app's dedicated key on $vm (forced borg serve, restricted to $BORG_REPO_PATH)"
+    "$VM" ssh "$vm" "pub=\$(cat /etc/$APP/keys/borg_repository_ed25519.pub); mkdir -p /root/.ssh; chmod 700 /root/.ssh; grep -qF \"\$pub\" /root/.ssh/authorized_keys 2>/dev/null || echo \"command=\\\"/var/www/borg/venv/bin/borg serve --restrict-to-repository $BORG_REPO_PATH\\\",restrict \$pub\" >> /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys"
+    "$VM" ssh "$vm" "yunohost app setting $APP borg_ssh_key -v dedicated >/dev/null"
 }
 
 target_setup() {
@@ -66,9 +73,11 @@ app_setup() {
         "$VM" ssh "$vm" "yunohost app upgrade $APP -f /root/bbic-src" | tail -n 3
     else
         log "installing $APP (reusing borg_ynh, static provider will be used at run time)"
-        "$VM" ssh "$vm" "yunohost app install /root/bbic-src --force --args 'cloud_provider=hetzner&hetzner_token=0000000000000000000000000000000000000000000000000000000000000000&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=1&borg_app=borg&borg_repository_remote=ssh://root@$PROD_LAB_IP$BORG_REPO_PATH&restore_mode=sampled&sample_size=20&schedule_enabled=0&schedule_time=09:00&report_email='" | tail -n 5
+        "$VM" ssh "$vm" "yunohost app install /root/bbic-src --force --args 'cloud_provider=hetzner&provider_token=0000000000000000000000000000000000000000000000000000000000000000&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=1&borg_app=borg&borg_repository_remote=ssh://root@$PROD_LAB_IP$BORG_REPO_PATH&restore_mode=sampled&sample_size=20&schedule_enabled=0&schedule_time=09:00&report_email='" | tail -n 5
     fi
-    "$VM" ssh "$vm" "yunohost app setting $APP vm_ssh_port -v $MAINT_PORT >/dev/null; $APP show-config | grep -E 'borg_source|vm_ssh_port'"
+    "$VM" ssh "$vm" "yunohost app setting $APP vm_ssh_port -v $MAINT_PORT >/dev/null"
+    authorize_dedicated_key "$vm"
+    "$VM" ssh "$vm" "$APP show-config | grep -E 'borg_source|vm_ssh_port|borg_ssh_key'"
 }
 
 run_check() {

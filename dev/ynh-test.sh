@@ -23,7 +23,7 @@ section "clean slate"
 yunohost app remove "$APP" >/dev/null 2>&1 || true
 
 section "1. install with the native form (CLI --args), hetzner, manual borg source"
-yunohost app install "$SRC" --force --args "cloud_provider=hetzner&hetzner_token=$TOKEN&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=0&borg_repository=ssh://sam@domain.tld:22/~/backup&borg_passphrase=$PP&restore_mode=sampled&sample_size=15&schedule_enabled=1&schedule_time=09:30&report_email=" >/tmp/bbic-install.log 2>&1 && ok "install succeeded" || { ko "install failed"; tail -n 40 /tmp/bbic-install.log; }
+yunohost app install "$SRC" --force --args "cloud_provider=hetzner&provider_token=$TOKEN&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=0&borg_repository=ssh://sam@domain.tld:22/~/backup&borg_passphrase=$PP&restore_mode=sampled&sample_size=15&schedule_enabled=1&schedule_time=09:30&report_email=" >/tmp/bbic-install.log 2>&1 && ok "install succeeded" || { ko "install failed"; tail -n 40 /tmp/bbic-install.log; }
 
 section "2. settings and secrets"
 check "cloud_provider stored" '[ "$(setting cloud_provider)" = "hetzner" ]'
@@ -123,12 +123,12 @@ yunohost backup delete bbic_test >/dev/null 2>&1 || true
 
 section "13. failed install cleanup"
 yunohost app remove "$APP" >/dev/null 2>&1 || true
-if yunohost app install "$SRC" --force --args "cloud_provider=hetzner&hetzner_token=&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=0&borg_repository=ssh://x@y/./r&borg_passphrase=$PP&restore_mode=sampled&sample_size=20&schedule_enabled=1&schedule_time=09:00&report_email=" >/dev/null 2>&1; then ko "install without token unexpectedly succeeded"; else ok "install without token refused"; fi
+if yunohost app install "$SRC" --force --args "cloud_provider=hetzner&provider_token=&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=0&borg_repository=ssh://x@y/./r&borg_passphrase=$PP&restore_mode=sampled&sample_size=20&schedule_enabled=1&schedule_time=09:00&report_email=" >/dev/null 2>&1; then ko "install without token unexpectedly succeeded"; else ok "install without token refused"; fi
 check "no leftovers after failed install" '[ ! -e $CLI ] && [ ! -d /etc/yunohost/apps/$APP ]'
 
 section "14. reinstall (digitalocean, reuse borg_ynh if present)"
 if [ -d /etc/yunohost/apps/borg ]; then USE=1; else USE=0; fi
-yunohost app install "$SRC" --force --args "cloud_provider=digitalocean&digitalocean_token=dop_v1_$(printf 'b%.0s' $(seq 1 64))&digitalocean_region=fra1&digitalocean_size=auto&digitalocean_project=&use_borg_ynh=$USE&borg_repository=ssh://sam@domain.tld:22/~/backup&borg_passphrase=$PP&restore_mode=sampled&sample_size=20&schedule_enabled=0&schedule_time=09:00&report_email=admin@example.org" >/tmp/bbic-install2.log 2>&1 && ok "reinstall with DigitalOcean" || { ko "reinstall failed"; tail -n 30 /tmp/bbic-install2.log; }
+yunohost app install "$SRC" --force --args "cloud_provider=digitalocean&provider_token=dop_v1_$(printf 'b%.0s' $(seq 1 64))&digitalocean_region=fra1&digitalocean_size=auto&digitalocean_project=&use_borg_ynh=$USE&borg_repository=ssh://sam@domain.tld:22/~/backup&borg_passphrase=$PP&restore_mode=sampled&sample_size=20&schedule_enabled=0&schedule_time=09:00&report_email=admin@example.org" >/tmp/bbic-install2.log 2>&1 && ok "reinstall with DigitalOcean" || { ko "reinstall failed"; tail -n 30 /tmp/bbic-install2.log; }
 check "schedule disabled at install honoured" '! systemctl is-enabled $APP.timer >/dev/null 2>&1'
 check "report_email stored" '[ "$(setting report_email)" = "admin@example.org" ]'
 if [ "$USE" = "1" ]; then check "borg_ynh source discovered" '$CLI show-config --json | grep -q "borg_ynh:borg"'; fi

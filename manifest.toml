@@ -40,14 +40,12 @@ ram.runtime = "300M"
     choices.digitalocean = "DigitalOcean"
     default = "hetzner"
 
-    [install.hetzner_token]
-    ask.en = "Hetzner Cloud API token (read & write)"
-    ask.fr = "Jeton d'API Hetzner Cloud (lecture et écriture)"
-    help.en = "Create it in the Hetzner Cloud Console under the project you want to use (Security > API tokens). The token is stored in a root-only file, never in the app settings."
-    help.fr = "Créez-le dans la console Hetzner Cloud dans le projet à utiliser (Sécurité > Jetons d'API). Le jeton est stocké dans un fichier réservé à root, jamais dans les réglages de l'application."
+    [install.provider_token]
+    ask.en = "API token of the selected cloud provider (read & write)"
+    ask.fr = "Jeton d'API du fournisseur cloud choisi (lecture et écriture)"
+    help.en = "Hetzner: create it in the Cloud Console of the project to use (Security > API tokens). DigitalOcean: a personal access token with read and write scopes (API > Tokens). The token is stored in a root-only file, never in the app settings and never shown again."
+    help.fr = "Hetzner : créez-le dans la console Cloud du projet à utiliser (Sécurité > Jetons d'API). DigitalOcean : un jeton d'accès personnel avec les droits lecture et écriture (API > Tokens). Le jeton est stocké dans un fichier réservé à root, jamais dans les réglages ni affiché à nouveau."
     type = "password"
-    optional = true
-    visible = "cloud_provider == 'hetzner'"
 
     [install.hetzner_location]
     ask.en = "Hetzner location"
@@ -68,15 +66,6 @@ ram.runtime = "300M"
     type = "string"
     default = "auto"
     visible = "cloud_provider == 'hetzner'"
-
-    [install.digitalocean_token]
-    ask.en = "DigitalOcean API token (read & write)"
-    ask.fr = "Jeton d'API DigitalOcean (lecture et écriture)"
-    help.en = "Create a personal access token with read and write scopes in the DigitalOcean control panel (API > Tokens). Stored in a root-only file."
-    help.fr = "Créez un jeton d'accès personnel avec les droits lecture et écriture (API > Tokens). Stocké dans un fichier réservé à root."
-    type = "password"
-    optional = true
-    visible = "cloud_provider == 'digitalocean'"
 
     [install.digitalocean_region]
     ask.en = "DigitalOcean region"
@@ -137,13 +126,12 @@ ram.runtime = "300M"
     visible = "!use_borg_ynh"
 
     [install.borg_passphrase]
-    ask.en = "Borg repository passphrase"
-    ask.fr = "Phrase de passe du dépôt Borg"
-    help.en = "Stored in a root-only file and used to read (never modify) the repository."
-    help.fr = "Stockée dans un fichier réservé à root et utilisée pour lire (jamais modifier) le dépôt."
+    ask.en = "Borg repository passphrase (only when not reusing the Borg app)"
+    ask.fr = "Phrase de passe du dépôt Borg (seulement sans réutilisation de l'application Borg)"
+    help.en = "Leave empty when the Borg app configuration is reused. Otherwise it is stored in a root-only file and used to read (never modify) the repository."
+    help.fr = "Laissez vide si la configuration de l'application Borg est réutilisée. Sinon elle est stockée dans un fichier réservé à root et utilisée pour lire (jamais modifier) le dépôt."
     type = "password"
     optional = true
-    visible = "!use_borg_ynh"
 
     [install.borg_repository_remote]
     ask.en = "Repository URL as seen from the restore server (optional)"
