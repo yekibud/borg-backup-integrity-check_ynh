@@ -10,12 +10,6 @@ ynh_script_progression "Storing installation settings..."
 
 bbic_set_default_settings
 
-# The "app" question stores "_none" when nothing is selected.
-if [ "${borg_app:-}" == "_none" ]; then
-    borg_app=""
-    ynh_app_setting_set --key=borg_app --value=""
-fi
-
 if [ "$use_borg_ynh" != "1" ] && [ -z "${borg_repository:-}" ]; then
     ynh_die "A Borg repository is required when the Borg app configuration is not reused."
 fi

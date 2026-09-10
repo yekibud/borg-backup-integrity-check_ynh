@@ -52,13 +52,35 @@ bbic_default_settings=(
     "borg_app="
 )
 
-# Initialise every config-panel-only setting that does not exist yet.
+# Settings asked at install whose answers may be missing (question hidden by a `visible` condition).
+# Hidden/unanswered questions are stored as null and reach scripts as the string "None".
+bbic_install_defaults=(
+    "hetzner_location=fsn1"
+    "hetzner_server_type=auto"
+    "digitalocean_region=fra1"
+    "digitalocean_size=auto"
+    "digitalocean_project="
+    "borg_app="
+    "borg_repository="
+    "borg_repository_remote="
+    "schedule_time=09:00"
+    "report_email="
+    "sample_size=20"
+    "restore_mode=sampled"
+)
+
+# Initialise every config-panel-only setting that does not exist yet, and normalise
+# "None"/"_none" placeholders left by hidden install questions.
 bbic_set_default_settings() {
-    local entry key value
-    for entry in "${bbic_default_settings[@]}"; do
+    local entry key value current
+    for entry in "${bbic_default_settings[@]}" "${bbic_install_defaults[@]}"; do
         key="${entry%%=*}"
         value="${entry#*=}"
-        ynh_app_setting_set_default --key="$key" --value="$value"
+        current="${!key:-}"
+        if [ -z "$current" ] || [ "$current" == "None" ] || [ "$current" == "_none" ]; then
+            ynh_app_setting_set --key="$key" --value="$value"
+            declare -g "$key"="$value"
+        fi
     done
 }
 
@@ -117,6 +139,7 @@ bbic_generate_keys() {
 # Compute the systemd OnCalendar expression from the schedule settings.
 bbic_on_calendar() {
     local time="${schedule_time:-09:00}"
+    [[ "$time" =~ ^[0-9]{1,2}:[0-9]{2} ]] || time="09:00"
     local hh="${time%%:*}"
     local mm="${time#*:}"
     mm="${mm%%:*}"

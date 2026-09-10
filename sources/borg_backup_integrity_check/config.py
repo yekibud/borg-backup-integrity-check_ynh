@@ -175,7 +175,8 @@ class AppConfig:
     # ------------------------------------------------------------ typed access
     def get(self, key: str, default: Any = None) -> Any:
         value = self.raw.get(key)
-        if value is None or value == "":
+        # Unanswered/invisible install questions are stored as null and may surface as "None".
+        if value is None or value == "" or value == "None" or value == "_none":
             value = DEFAULTS.get(key, default) if default is None else default
         if key in _BOOL_KEYS:
             return _to_bool(value)

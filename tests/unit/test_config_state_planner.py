@@ -247,3 +247,15 @@ def test_planner_orders_and_sizes(synthetic_app_listing, synthetic_app_layout, a
     assert full_all.disk_estimate_bytes() > plan.disk_estimate_bytes()
     assert [p.component.id for p in full.system_conf] == []  # not selected
     assert "estimated disk need" in full.summary()
+
+
+def test_config_treats_none_placeholders_as_unset(tmp_path):
+    cfg = _config(
+        tmp_path,
+        schedule_time="None",
+        borg_app="_none",
+        hetzner_location="None",
+        sample_size="None",
+    )
+    assert cfg.on_calendar() == "*-*-* 09:00:00"
+    assert cfg.get("borg_app") == "" and cfg.hetzner_location == "fsn1" and cfg.sample_size == 20
