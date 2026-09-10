@@ -209,6 +209,11 @@ class CloudProvider(ABC):
     def list_managed_resources(self, owner: str | None = None) -> list[ManagedResource]:
         """Every server/volume/key carrying our management labels (optionally for one owner)."""
 
+    # --- host access -------------------------------------------------------
+    def maintenance_ssh_port(self, configured: int) -> int:
+        """Port of the maintenance sshd on the host (cloud hosts: what cloud-init configured)."""
+        return configured
+
     # --- helpers for sizing ------------------------------------------------
     def choose_size(
         self,

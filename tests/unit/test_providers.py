@@ -576,3 +576,10 @@ def test_static_provider_and_registry(monkeypatch):
         create_provider("hetzner", {}, {})
     with pytest.raises(ConfigurationError):
         create_provider("nope", {}, {})
+
+
+def test_maintenance_ssh_port_is_provider_defined():
+    hetzner, _ = hetzner_provider()
+    assert hetzner.maintenance_ssh_port(22022) == 22022
+    static = StaticHostProvider("10.0.0.5", 2222)
+    assert static.maintenance_ssh_port(22022) == 2222

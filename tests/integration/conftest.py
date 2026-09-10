@@ -36,14 +36,26 @@ def borg() -> str:
 
 def _build(env: dict, repo: Path, scenario: str, generations: int) -> dict:
     out = subprocess.run(
-        [sys.executable, str(BUILD), str(repo), "--scenario", scenario, "--generations", str(generations), "--start", "2026-09-10T02:00:00"],
+        [
+            sys.executable,
+            str(BUILD),
+            str(repo),
+            "--scenario",
+            scenario,
+            "--generations",
+            str(generations),
+            "--start",
+            "2026-09-10T02:00:00",
+        ],
         env=env,
         capture_output=True,
         text=True,
         check=False,
     )
     if out.returncode != 0:
-        raise RuntimeError(f"synthetic repo build failed ({scenario}, rc={out.returncode}):\n{out.stdout[-1500:]}\n{out.stderr[-2500:]}")
+        raise RuntimeError(
+            f"synthetic repo build failed ({scenario}, rc={out.returncode}):\n{out.stdout[-1500:]}\n{out.stderr[-2500:]}"
+        )
     info = json.loads(out.stdout.strip().splitlines()[-1])
     info["borg"] = env["BORG"]
     info["base_dir"] = env["BORG_BASE_DIR"]

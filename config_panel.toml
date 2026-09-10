@@ -518,6 +518,13 @@ name.fr = "Avancé"
         type = "boolean"
         default = false
 
+        [advanced.main.restore_borg_app]
+        ask.en = "Install the upstream Borg app on the restore server"
+        ask.fr = "Installer l'application Borg sur le serveur de restauration"
+        help.en = "After the system restore, borg_ynh is installed on the test server (timer disabled) so it mirrors production. Disabling this saves a few minutes per check; a plain Borg client is used instead."
+        type = "boolean"
+        default = true
+
         [advanced.main.never_restore_apps]
         ask.en = "Apps never restored on the test server"
         ask.fr = "Applications jamais restaurées sur le serveur de test"

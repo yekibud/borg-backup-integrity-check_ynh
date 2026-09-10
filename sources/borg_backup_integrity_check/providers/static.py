@@ -58,6 +58,9 @@ class StaticHostProvider(CloudProvider):
                 address, port = host, int(maybe_port)
         return cls(address, port)
 
+    def maintenance_ssh_port(self, configured: int) -> int:
+        return self.ssh_port
+
     def validate_credentials(self) -> str:
         return f"static host {self.address}:{self.ssh_port} (no credentials needed)"
 

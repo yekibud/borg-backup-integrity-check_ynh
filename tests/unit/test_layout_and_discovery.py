@@ -163,3 +163,14 @@ def test_profile_registry_matching(tmp_path):
         and prof.http_ok_codes == [200, 302]
     )
     assert reg.find("immich") is None and reg.find(None) is None
+
+
+def test_layout_reads_main_domain(tmp_path):
+    root = tmp_path / "layout"
+    (root / "conf" / "ynh").mkdir(parents=True)
+    (root / "info.json").write_text(
+        '{"created_at": 1, "size": 5, "size_details": {"system": {"conf_ynh_settings": 5}, "apps": {}}, "apps": {}, "system": {"conf_ynh_settings": {}}, "from_yunohost_version": "12.1.41"}'
+    )
+    (root / "conf" / "ynh" / "current_host").write_text("example.org\n")
+    layout = load_layout_from_dir("auto_conf-x", root)
+    assert layout.main_domain == "example.org" and layout.system_parts == ["conf_ynh_settings"]

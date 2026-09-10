@@ -33,6 +33,7 @@ log = get_logger("layout")
 LAYOUT_PATTERNS = [
     "+ pf:info.json",
     "+ pf:backup.csv",
+    "+ pf:conf/ynh/current_host",
     "+ sh:apps/*/settings/settings.yml",
     "+ sh:apps/*/settings/manifest.toml",
     "+ sh:apps/*/settings/manifest.json",
@@ -149,6 +150,7 @@ class BackupLayout:
     info: BackupInfo
     csv_rows: list[BackupCsvRow] = field(default_factory=list)
     apps: dict[str, AppArchiveEntry] = field(default_factory=dict)
+    main_domain: str | None = None
 
     @property
     def system_parts(self) -> list[str]:
@@ -200,6 +202,11 @@ def load_layout_from_dir(archive: str, root: Path) -> BackupLayout:
     with open(info_path, encoding="utf-8") as fh:
         info = BackupInfo.from_dict(json.load(fh))
     layout = BackupLayout(archive=archive, info=info)
+    current_host = root / "conf" / "ynh" / "current_host"
+    if current_host.is_file():
+        layout.main_domain = (
+            current_host.read_text(encoding="utf-8", errors="replace").strip() or None
+        )
     csv_path = root / "backup.csv"
     if csv_path.is_file():
         layout.csv_rows = parse_backup_csv(csv_path.read_text(encoding="utf-8", errors="replace"))

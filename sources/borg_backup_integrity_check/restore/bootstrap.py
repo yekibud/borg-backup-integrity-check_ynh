@@ -23,10 +23,19 @@ class BootstrapResult:
 
 
 class RestoreHostBootstrap:
-    def __init__(self, agent: HostAgent, borg: BorgSource, progress=None) -> None:
+    def __init__(
+        self,
+        agent: HostAgent,
+        borg: BorgSource,
+        progress=None,
+        ssh_port: int = 22022,
+        borg_version: str | None = None,
+    ) -> None:
         self.agent = agent
         self.borg = borg
         self.progress = progress
+        self.ssh_port = ssh_port
+        self.borg_version = borg_version
 
     def _note(self, text: str) -> None:
         log.info(text)
@@ -47,7 +56,11 @@ class RestoreHostBootstrap:
 
     def install_yunohost(self, major: str) -> None:
         self._note(f"installing YunoHost {major} (this takes several minutes)")
-        result = self.agent.call("install-yunohost", args=["--major", major], timeout=4200)
+        result = self.agent.call(
+            "install-yunohost",
+            args=["--major", major, "--ssh-port", str(self.ssh_port)],
+            timeout=4200,
+        )
         if not result.get("ok"):
             raise RestoreHostError(
                 f"YunoHost installation failed: {result.get('log_tail', result.get('error', ''))[-1200:]}"

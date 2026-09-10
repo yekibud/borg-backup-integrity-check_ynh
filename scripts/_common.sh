@@ -37,6 +37,7 @@ bbic_default_settings=(
     "retain_hours=4"
     "keep_runs=30"
     "keep_host_on_failure=0"
+    "restore_borg_app=1"
     "never_restore_apps=borg,borgserver,borg-backup-integrity-check"
     "borg_lock_wait=900"
     "email_include_sender=1"

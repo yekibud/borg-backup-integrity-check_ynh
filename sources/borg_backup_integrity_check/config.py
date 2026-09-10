@@ -62,6 +62,7 @@ DEFAULTS: dict[str, Any] = {
     "retain_hours": 4,
     "keep_runs": 30,
     "keep_host_on_failure": False,
+    "restore_borg_app": True,
     "never_restore_apps": "borg,borgserver,borg-backup-integrity-check",
     "borg_lock_wait": 900,
     "log_level": "info",

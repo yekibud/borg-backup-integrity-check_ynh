@@ -208,6 +208,93 @@ def cmd_install_yunohost(ns: argparse.Namespace) -> dict:
     }
 
 
+def cmd_install_borg_client(ns: argparse.Namespace) -> dict:
+    """Install a Borg client before YunoHost is post-installed (borg_ynh needs a post-installed system).
+
+    Preferred: the exact production version in a venv (like borg_ynh does); fallback: Debian's borgbackup.
+    """
+    venv = Path("/opt/bbic-borg")
+    wanted = (ns.borg_version or "").strip()
+    binary = venv / "bin" / "borg"
+    if binary.exists():
+        proc = sh([str(binary), "--version"], timeout=60)
+        if not wanted or wanted in proc.stdout.decode(errors="replace"):
+            return {"ok": True, "binary": str(binary), "skipped": True}
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    sh(["apt-get", "update", "-q"], timeout=900, env=env)
+    deps = [
+        "python3-venv",
+        "python3-dev",
+        "python3-pip",
+        "build-essential",
+        "pkg-config",
+        "libssl-dev",
+        "libacl1-dev",
+        "liblz4-dev",
+        "libzstd-dev",
+        "libxxhash-dev",
+        "libfuse3-dev",
+        "borgbackup",
+    ]
+    apt = sh(
+        ["apt-get", "install", "-y", "-q", "--no-install-recommends"] + deps, timeout=1800, env=env
+    )
+    result: dict = {"apt_rc": apt.returncode}
+    if wanted:
+        sh(["python3", "-m", "venv", "--upgrade", str(venv)], timeout=300)
+        pip = sh(
+            [
+                str(venv / "bin" / "python3"),
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--upgrade",
+                "pip",
+                "setuptools",
+                "wheel",
+            ],
+            timeout=900,
+        )
+        pip = sh(
+            [
+                str(venv / "bin" / "python3"),
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                f"borgbackup=={wanted}",
+            ],
+            timeout=3600,
+        )
+        if pip.returncode == 0 and binary.exists():
+            result.update({"ok": True, "binary": str(binary), "version": wanted})
+            _set_env_value("BBIC_BORG_BINARY", str(binary))
+            return result
+        result["pip_error"] = pip.stderr.decode("utf-8", "replace")[-800:]
+    system = shutil.which("borg")
+    if system:
+        version = sh([system, "--version"], timeout=60).stdout.decode(errors="replace").strip()
+        result.update({"ok": True, "binary": system, "version": version, "fallback": True})
+        _set_env_value("BBIC_BORG_BINARY", system)
+        return result
+    result.update({"ok": False, "error": "no borg client could be installed"})
+    return result
+
+
+def _set_env_value(key: str, value: str) -> None:
+    if not BORG_ENV_FILE.is_file():
+        return
+    lines = [
+        line
+        for line in BORG_ENV_FILE.read_text(encoding="utf-8").splitlines()
+        if not line.startswith(key + "=")
+    ]
+    lines.append(f"{key}={value}")
+    BORG_ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    BORG_ENV_FILE.chmod(0o600)
+
+
 def cmd_install_borg_app(ns: argparse.Namespace) -> dict:
     """Install upstream borg_ynh on the restore host with its timer disabled (never backs up the host)."""
     if Path("/etc/yunohost/apps/borg").is_dir():
@@ -829,6 +916,7 @@ COMMANDS = {
     "borg-test": cmd_borg_test,
     "wait-cloud-init": cmd_wait_cloud_init,
     "install-yunohost": cmd_install_yunohost,
+    "install-borg-client": cmd_install_borg_client,
     "install-borg-app": cmd_install_borg_app,
     "deploy-credentials": cmd_deploy_credentials,
     "quarantine": cmd_quarantine,
@@ -859,6 +947,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--mountpoint", default=None)
+    parser.add_argument("--borg-version", default=None)
     ns = parser.parse_args(argv)
     try:
         out(COMMANDS[ns.command](ns))

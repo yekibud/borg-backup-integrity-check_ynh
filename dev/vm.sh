@@ -173,7 +173,15 @@ cmd_push() {
     tar -C "$REPO" --exclude=.git --exclude=.venv --exclude=dev/local --exclude='__pycache__' --exclude=.pytest_cache --exclude=.ruff_cache -czf - . | ssh $(ssh_opts "$name") root@127.0.0.1 'rm -rf /root/bbic-src && mkdir -p /root/bbic-src && tar -xzf - -C /root/bbic-src'
 }
 
-cmd_snapshot() { VBoxManage snapshot "$1" take "$2" --live >/dev/null && log "snapshot $2 taken on $1"; }
+cmd_snapshot() {
+    # Offline snapshots are fast (no 4 GB memory image); the VM is stopped, snapshotted and restarted.
+    local name="$1" snap="$2"
+    local was_running=0; vm_running "$name" && was_running=1
+    [ "$was_running" = 1 ] && cmd_stop "$name"
+    VBoxManage snapshot "$name" take "$snap" >/dev/null
+    log "snapshot $snap taken on $name"
+    if [ "$was_running" = 1 ]; then cmd_start "$name"; wait_ssh "$name"; fi
+}
 cmd_restore() {
     local name="$1" snap="$2"
     vm_running "$name" && VBoxManage controlvm "$name" poweroff >/dev/null 2>&1 || true

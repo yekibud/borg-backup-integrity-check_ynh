@@ -44,6 +44,9 @@ class FakeBorgClient:
         self.kwargs = kwargs
         self.calls: list[str] = []
 
+    def version(self):
+        return "1.4.5"
+
     def list_archives(self):
         names = ["auto_conf", "auto_data", "auto_filebox"]
         refs = []

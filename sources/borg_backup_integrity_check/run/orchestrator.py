@@ -427,7 +427,7 @@ class IntegrityRun:
         labels = run_labels(self.run_id, self.config.owner_id)
         ssh_key = self.provider.ensure_ssh_key(f"bbic-{self.config.owner_id}", public_key, labels)
         self.state.ssh_key_id = ssh_key.id
-        ssh_port = int(self.config.vm_ssh_port)
+        ssh_port = self.provider.maintenance_ssh_port(int(self.config.vm_ssh_port))
         spec = VMSpec(
             name=host_name_for(self.run_id),
             region=region,
@@ -502,7 +502,17 @@ class IntegrityRun:
         self.progress.stage("Installing YunoHost")
         self.state.phase = "bootstrapping"
         self.state_store.save(self.state)
-        bootstrap = RestoreHostBootstrap(self.agent, self.borg, self.progress)
+        try:
+            borg_version = self.client.version()
+        except BorgError:
+            borg_version = None
+        bootstrap = RestoreHostBootstrap(
+            self.agent,
+            self.borg,
+            self.progress,
+            ssh_port=self.provider.maintenance_ssh_port(int(self.config.vm_ssh_port)),
+            borg_version=borg_version,
+        )
         device = None
         for note in self.state.notes:
             if note.startswith("volume device ") and note.split(" ", 2)[2] != "None":
@@ -572,6 +582,9 @@ class IntegrityRun:
         return sorted(domains)
 
     def _main_domain(self) -> str | None:
+        for layout in self.layouts.values():
+            if layout.main_domain:
+                return layout.main_domain
         return None
 
     # ------------------------------------------------------------ stage 5
