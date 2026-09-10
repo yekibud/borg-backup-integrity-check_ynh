@@ -460,11 +460,7 @@ def cmd_restore_core(ns: argparse.Namespace) -> dict:
     work.mkdir(parents=True, mode=0o700)
     result: dict = {"archive": archive, "name": name}
     # 1. Extract everything except the large roots (their directory items are kept as skeleton).
-    patterns = []
-    for root in spec.get("large_roots", []):
-        for entry in root.get("skeleton", []):
-            patterns.append(f"+ pf:{entry['path']}")
-        patterns.append(f"- pp:{root['archive_path']}")
+    patterns = core_patterns(spec.get("large_roots", []))
     pattern_file = work / ".patterns"
     pattern_file.write_text("\n".join(patterns) + ("\n" if patterns else ""), encoding="utf-8")
     args = ["extract", "--numeric-ids" if spec.get("numeric_ids") else "--noflags"]
@@ -574,30 +570,7 @@ def cmd_extract_payload(ns: argparse.Namespace) -> dict:
     for root in spec.get("roots", []):
         archive_root = root["archive_path"].rstrip("/")
         live_root = root["live_path"].rstrip("/")
-        patterns: list[str] = []
-        if root.get("full"):
-            patterns.append(f"+ pp:{archive_root}")
-        else:
-            seen: set[str] = set()
-            for obj in root.get("objects", []):
-                ap = obj["archive_path"]
-                if obj.get("kind") == "git_repo":
-                    for meta in ("HEAD", "logs/HEAD", "packed-refs", "config", "description"):
-                        patterns.append(f"+ pf:{ap}/.git/{meta}")
-                    patterns.append(f"+ sh:{ap}/.git/refs/**")
-                    ancestors = f"{ap}/.git"
-                else:
-                    patterns.append(f"+ pf:{ap}")
-                    ancestors = ap.rsplit("/", 1)[0]
-                # Include directory items of every ancestor so ownership/permissions are restored.
-                parts = ancestors.split("/")
-                for i in range(len(parts), 0, -1):
-                    d = "/".join(parts[:i])
-                    if d in seen or not d.startswith(archive_root):
-                        break
-                    seen.add(d)
-                    patterns.append(f"+ pf:{d}")
-        patterns.append("- sh:**")
+        patterns = payload_patterns(root)
         pattern_file = stage / ".patterns"
         pattern_file.write_text("\n".join(patterns) + "\n", encoding="utf-8")
         proc = borg(
@@ -650,16 +623,57 @@ def cmd_extract_payload(ns: argparse.Namespace) -> dict:
     return {"ok": all(r["error"] is None for r in results), "roots": results}
 
 
+def core_patterns(large_roots: list[dict]) -> list[str]:
+    """Borg patterns extracting everything but the large roots, keeping their skeleton directory items."""
+    patterns: list[str] = []
+    for root in large_roots:
+        for entry in root.get("skeleton", []):
+            patterns.append(f"+ pf:{entry['path']}")
+        patterns.append(f"- pp:{root['archive_path']}")
+    return patterns
+
+
+def payload_patterns(root: dict) -> list[str]:
+    """Borg patterns extracting one large root completely (full) or only its sampled objects.
+
+    Sampled files come with the directory items of all their ancestors (inside the root) so that
+    ownership and permissions of the recreated tree match the archive; git repositories only need
+    their metadata files (HEAD, refs, logs) for evidence.
+    """
+    archive_root = root["archive_path"].rstrip("/")
+    patterns: list[str] = []
+    if root.get("full"):
+        patterns.append(f"+ pp:{archive_root}")
+    else:
+        seen: set[str] = set()
+        for obj in root.get("objects", []):
+            ap = obj["archive_path"]
+            if obj.get("kind") == "git_repo":
+                for meta in ("HEAD", "logs/HEAD", "packed-refs", "config", "description"):
+                    patterns.append(f"+ pf:{ap}/.git/{meta}")
+                patterns.append(f"+ sh:{ap}/.git/refs/**")
+                ancestors = f"{ap}/.git"
+            else:
+                patterns.append(f"+ pf:{ap}")
+                ancestors = ap.rsplit("/", 1)[0]
+            parts = ancestors.split("/")
+            for i in range(len(parts), 0, -1):
+                d = "/".join(parts[:i])
+                if d in seen or not d.startswith(archive_root):
+                    break
+                seen.add(d)
+                patterns.append(f"+ pf:{d}")
+    patterns.append("- sh:**")
+    return patterns
+
+
 def _merge_tree(src: Path, dst: Path) -> None:
-    """Move a staged tree into place preserving ownership/permissions/times (cp -a semantics)."""
+    """Copy a staged tree into place preserving ownership/permissions/times (cp -a semantics)."""
     dst.parent.mkdir(parents=True, exist_ok=True)
-    sh(
-        ["cp", "-a", "--no-preserve=", f"{src}/.", f"{dst}/"]
-        if dst.exists()
-        else ["cp", "-a", str(src), str(dst)],
-        timeout=6 * 3600,
-        check=True,
-    )
+    if dst.exists():
+        sh(["cp", "-a", f"{src}/.", f"{dst}/"], timeout=6 * 3600, check=True)
+    else:
+        sh(["cp", "-a", str(src), str(dst)], timeout=6 * 3600, check=True)
 
 
 def cmd_describe(ns: argparse.Namespace) -> dict:

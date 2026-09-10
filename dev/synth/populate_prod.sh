@@ -30,7 +30,7 @@ for app_dir in Path("/home/yunohost.app").iterdir():
         pw = pwd.getpwnam(app)
     except KeyError:
         continue
-    base = app_dir / "users" if app == "filebrowser" else app_dir
+    base = app_dir
     for user in ("alice", "bbicadmin"):
         photos = base / user / "Photos"; docs = base / user / "Documents"
         photos.mkdir(parents=True, exist_ok=True); docs.mkdir(parents=True, exist_ok=True)

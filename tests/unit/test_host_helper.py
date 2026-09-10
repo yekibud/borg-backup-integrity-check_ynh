@@ -73,3 +73,57 @@ def test_unknown_command_reports_json_error():
         check=False,
     )
     assert proc.returncode != 0
+
+
+def test_core_and_payload_patterns():
+    core = host_helper.core_patterns(
+        [
+            {
+                "archive_path": "apps/x/backup/home/yunohost.app/x",
+                "skeleton": [
+                    {"path": "apps/x/backup/home/yunohost.app/x"},
+                    {"path": "apps/x/backup/home/yunohost.app/x/alice"},
+                ],
+            }
+        ]
+    )
+    assert core == [
+        "+ pf:apps/x/backup/home/yunohost.app/x",
+        "+ pf:apps/x/backup/home/yunohost.app/x/alice",
+        "- pp:apps/x/backup/home/yunohost.app/x",
+    ]
+    root = {
+        "archive_path": "apps/x/backup/home/yunohost.app/x",
+        "live_path": "/home/yunohost.app/x",
+        "objects": [
+            {
+                "archive_path": "apps/x/backup/home/yunohost.app/x/alice/files/Photos/IMG_1.jpg",
+                "kind": "file",
+            },
+            {
+                "archive_path": "apps/x/backup/home/yunohost.app/x/alice/files/Photos/IMG_2.jpg",
+                "kind": "file",
+            },
+            {
+                "archive_path": "apps/x/backup/home/yunohost.app/x/alice/projects/tool",
+                "kind": "git_repo",
+            },
+        ],
+    }
+    pats = host_helper.payload_patterns(root)
+    assert pats[0] == "+ pf:apps/x/backup/home/yunohost.app/x/alice/files/Photos/IMG_1.jpg"
+    assert (
+        "+ pf:apps/x/backup/home/yunohost.app/x/alice/files/Photos" in pats
+        and "+ pf:apps/x/backup/home/yunohost.app/x" in pats
+    )
+    assert pats.count("+ pf:apps/x/backup/home/yunohost.app/x/alice") == 1  # ancestors added once
+    assert "+ pf:apps/x/backup/home/yunohost.app/x/alice/projects/tool/.git/HEAD" in pats
+    assert "+ sh:apps/x/backup/home/yunohost.app/x/alice/projects/tool/.git/refs/**" in pats
+    assert pats[-1] == "- sh:**"
+    assert not any(
+        p.startswith("+ pf:apps/x/backup/home/yunohost.app/x/alice/projects/tool/.git/objects")
+        for p in pats
+    )
+    assert host_helper.payload_patterns(
+        {"archive_path": "data/mail", "live_path": "/var/mail", "full": True}
+    ) == ["+ pp:data/mail", "- sh:**"]
