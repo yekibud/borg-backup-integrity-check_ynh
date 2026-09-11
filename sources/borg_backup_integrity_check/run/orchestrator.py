@@ -193,16 +193,35 @@ class IntegrityRun:
         workdir = self.paths.cache_dir / self.run_id
         workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
         discovery = LargeDataDiscovery(self.profiles)
+        selected = self.options.components or self.config.components_list
+        select_all = "all" in selected
+        never = self.config.never_restore
         for comp_name, ref in sorted(generation.archives.items()):
             self._check_interrupt()
             self.progress.note(f"reading archive {ref.name}")
             layout = read_layout(self.client, ref.name, workdir)
             self.layouts[ref.name] = layout
+            comps = components_from_layout(ref, comp_name, layout)
+            # An out-of-scope app archive can be huge (e.g. a 256 GB / 276k-file Nextcloud). We only
+            # need its full listing to sample it; for the manifest's size/object-count we use `borg info`
+            # instead. System parts are always small, so keep listing them for the per-part breakdown.
+            app_in_scope = select_all or any(
+                self._app_selected(c, selected, never) for c in comps if c.is_app
+            )
+            skip_listing = component_kind(comp_name) == "app" and comps and not app_in_scope
+            if skip_listing:
+                for component in comps:
+                    component.listed = False
+                    component.notes.append(
+                        "full listing skipped (not selected for sampling); manifest uses borg info"
+                    )
+                    self.components.append(component)
+                continue
             listing = self.client.cache_listing(ref.name, workdir / f"{ref.name}.jsonl.gz")
             self.listings[ref.name] = listing
             agg = DirectoryAggregates.build(iter_cached_listing(listing), track=is_db_dump_item)
             self.aggregates[ref.name] = agg
-            for component in components_from_layout(ref, comp_name, layout):
+            for component in comps:
                 discovery.discover(component, agg)
                 self.components.append(component)
             if agg.unhealthy:
@@ -214,6 +233,13 @@ class IntegrityRun:
         self._borg_level_checks()
         self.state.phase = "inspected"
         self.state_store.save(self.state)
+
+    @staticmethod
+    def _app_selected(component: Component, selected: list[str], never: set[str]) -> bool:
+        manifest_id = component.app.manifest_id if component.app else component.id
+        if component.id in never or manifest_id in never:
+            return False
+        return component.id in selected or manifest_id in selected
 
     def _select_samples(self) -> None:
         rules = SamplingRules(sample_size=int(self.config.sample_size))

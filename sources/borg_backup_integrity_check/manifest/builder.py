@@ -27,7 +27,18 @@ def archive_metrics(component: str, ref: ArchiveRef, stats: ArchiveStats | None)
     )
 
 
-def component_metrics(component: Component) -> ComponentMetrics:
+def component_metrics(component: Component, stats: ArchiveStats | None = None) -> ComponentMetrics:
+    # When the component's full listing was skipped, take size/object count from `borg info`.
+    if not component.listed and stats is not None:
+        return ComponentMetrics(
+            id=component.id,
+            kind=component.kind,
+            archive=component.archive.name,
+            logical_size=stats.original_size,
+            file_count=stats.nfiles,
+            large_roots=[],
+            label=component.label,
+        )
     return ComponentMetrics(
         id=component.id,
         kind=component.kind,
@@ -77,7 +88,9 @@ class ManifestBuilder:
         for comp, ref in sorted(generation.archives.items()):
             manifest.archives.append(archive_metrics(comp, ref, stats.get(comp)))
         for component in components:
-            manifest.components[component.id] = component_metrics(component)
+            manifest.components[component.id] = component_metrics(
+                component, stats.get(component.archive_component)
+            )
         return manifest
 
     def build_stats_only(self, generation: BackupGeneration) -> BackupManifest:

@@ -559,3 +559,23 @@ def test_pipeline_cleanup_failure_is_prominent(pipeline, monkeypatch):
     assert "CLEANUP FAILED" in text and "OVERALL: FAIL" in text
     state = RunStateStore(cfg.paths.runs_dir).load(run.run_id)
     assert state.cleanup_status == "failed" and state.server_id == "srv-1"
+
+
+def test_out_of_scope_apps_skip_full_listing(pipeline):
+    """Scoped run: only selected apps are fully listed; others get manifest metrics from borg info."""
+    cfg = pipeline["config"]
+    run = orch.IntegrityRun(
+        cfg,
+        orch.RunOptions(mode="sampled", inspect_only=True, components=["conf_ldap", "data_mail"]),
+    )
+    report = run.run()
+    # filebox is an app not selected -> its archive listing is skipped.
+    listed_archives = set(run.listings)
+    assert not any("filebox" in name for name in listed_archives)
+    assert any("auto_data" in name for name in listed_archives)  # system data always listed
+    filebox = next(c for c in run.components if c.id == "filebox")
+    assert filebox.listed is False and filebox.large_roots == []
+    # Manifest still covers filebox, with size/count taken from borg info (fake client stats).
+    metrics = report.manifest.components["filebox"]
+    assert metrics.logical_size > 0 and metrics.file_count > 0 and metrics.large_roots == []
+    assert "borg info" in " ".join(filebox.notes)

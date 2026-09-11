@@ -49,6 +49,9 @@ class Component:
     db_dump_size: int = 0
     db_dump_paths: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # False when the archive's full file listing was skipped (component not selected for sampling):
+    # the manifest then uses archive-level `borg info` stats for its size/object count.
+    listed: bool = True
 
     @property
     def is_app(self) -> bool:
