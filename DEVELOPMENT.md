@@ -47,9 +47,21 @@ Key design decisions:
 
 ## Milestones
 
+Verified end-to-end (Level 4) report excerpt::
+
+    OVERALL: PASS WITH 1 WARNING
+    MAIL-LIKE COMPONENT: Mail data  PASS
+      Mail server access:  PASS  20/20 sampled messages found through Dovecot
+      Sample verification: VERIFIED THROUGH APPLICATION
+    FILE/MEDIA APPLICATION: filebrowser  PASS
+      Service health / HTTP / SSO / Database restore: PASS
+      real photo names + EXIF dimensions, ODT documents shown
+    ATTENTION: Total objects increased 86.9% since the previous backup (206 -> 385)
+
+
 * [x] M1 - research, architecture, generic layers (borg/discovery/sampling/evidence/manifest/report), providers, orchestrator, CLI, YunoHost packaging files, 64 unit tests incl. a fake end-to-end pipeline.
 * [x] M2 - local VirtualBox workflow (`dev/vm.sh`: cloud image + NoCloud seed + NAT/intnet, works), Level 3 synthetic Borg repository tests pass with the real Borg 1.4.5 binary (`tests/integration`, marker `borg`); Level 2 YunoHost UX tests (`dev/ynh-test.sh`) pass on a real YunoHost 12.1.41.2 VM (68/69, the remaining one was a test-suite issue: data_dir survives `app remove` without `--purge`).
-* [~] M3 - Level 4 local end-to-end works: `bbic-prod` (YunoHost 12.1.41.2 + borg_ynh with a local repo + filebrowser + synthetic photos/documents/mails, real `borg` backups) -> this app on `bbic-prod` with the `static` provider -> `bbic-target` (fresh Debian 12 cloud image + maintenance sshd). Verified end to end: manifest + comparison against stored history (second run flagged +86.9% objects correctly), borg check + dry-run extraction, YunoHost install on the target, system parts restore (LDAP/settings/certs) with postinstall from the archive, quarantine, sparse app restore through `yunohost backup restore`, sampled payload placed in the live data dir, evidence (EXIF dimensions, ODT, e-mail subjects/senders), service/HTTP/SSO checks, report e-mail path. Open: Dovecot verification of restored messages (index-before-search fix deployed, awaiting confirmation) and borg_ynh installation on the target (failure now surfaced in the report).
+* [x] M3 - Level 4 local end-to-end fully working: `bbic-prod` (YunoHost 12.1.41.2 + borg_ynh with a local repo + filebrowser + synthetic photos/documents/mails, real `borg` backups) -> this app on `bbic-prod` with the `static` provider -> `bbic-target` (fresh Debian 12 cloud image + maintenance sshd). Verified end to end: manifest + comparison against stored history (second run flagged +86.9% objects correctly), borg check + dry-run extraction, YunoHost install on the target, system parts restore (LDAP/settings/certs) with postinstall from the archive, quarantine, sparse app restore through `yunohost backup restore`, sampled payload placed in the live data dir, evidence (EXIF dimensions, ODT, e-mail subjects/senders), service/HTTP/SSO checks, report e-mail path. All confirmed on a clean run: borg_ynh is installed on the target after the restore (timer disabled), and Dovecot mail verification reaches VERIFIED THROUGH APPLICATION (20/20 sampled messages found by Message-ID after a maildir `force-resync`). The only warning on the final run was the genuine manifest anomaly (backup grew +86.9% objects between runs), correctly flagged.
 * [ ] M4 - Level 5 real Hetzner / DigitalOcean runs (billable, needs credentials from the maintainer).
 * [ ] M5 - Level 6 real Borg repository run.
 
