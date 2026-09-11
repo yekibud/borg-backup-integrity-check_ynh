@@ -868,11 +868,14 @@ def cmd_mail_verify(ns: argparse.Namespace) -> dict:
     results = []
     if not shutil.which("doveadm"):
         return {"ok": False, "error": "doveadm not available", "objects": []}
-    # Files copied straight into the maildirs are only visible once Dovecot has synced them:
-    # index every mailbox of every involved user first (a first search alone returns nothing).
+    # Files copied straight into the maildirs (new/) are only picked up after a force-resync;
+    # a plain index or search on its own returns nothing for restored messages.
     for user in sorted({o.get("user") for o in spec.get("objects", []) if o.get("user")}):
-        sh(["doveadm", "index", "-u", user, "*"], timeout=600)
-        sh(["doveadm", "mailbox", "status", "-u", user, "messages", "*"], timeout=120)
+        for maildir in (Path("/var/mail") / user,):
+            for sub in ("cur", "new", "tmp"):
+                (maildir / sub).mkdir(parents=True, exist_ok=True)
+            sh(["chown", "-R", "vmail:mail", str(maildir)], timeout=120)
+        sh(["doveadm", "force-resync", "-u", user, "*"], timeout=600)
     for obj in spec.get("objects", []):
         message_id, user = obj.get("message_id"), obj.get("user")
         verified = False
