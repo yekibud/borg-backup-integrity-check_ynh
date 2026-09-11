@@ -6,6 +6,7 @@
 #   dev/level4-setup.sh target bbic-target         prepare the target VM (maintenance sshd on 22022, root key of the app)
 #   dev/level4-setup.sh app bbic-prod              install/refresh this app on the prod VM (reusing borg_ynh)
 #   dev/level4-setup.sh run bbic-prod [MODE]       run the integrity check from the prod VM against the target
+#   dev/level4-setup.sh reset-target bbic-target   restore the 'prepared' snapshot of the target (fresh Debian + maintenance sshd)
 set -Eeuo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 VM="$HERE/vm.sh"
@@ -86,7 +87,13 @@ run_check() {
     "$VM" ssh "$vm" "BBIC_STATIC_HOST=$TARGET_LAB_IP:$MAINT_PORT $APP --verbose run --provider static --mode $mode" 2>&1 | tee "$HERE/local/level4-run-$(date +%Y%m%d%H%M%S).log" | tail -n 120
 }
 
+reset_target() {
+    local vm="${1:-bbic-target}"
+    "$VM" restore "$vm" prepared
+}
+
 case "${1:-}" in
+    reset-target) reset_target "${2:-bbic-target}" ;;
     prod) shift; prod_setup "$@" ;;
     target) target_setup "${2:-bbic-target}" "${3:-bbic-prod}" ;;
     app) app_setup "${2:-bbic-prod}" ;;
