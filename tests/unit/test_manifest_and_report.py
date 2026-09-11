@@ -267,3 +267,26 @@ def test_overall_status_rules():
     assert r2.overall == "FAIL"
     r3 = RunReport(run_id="z", mode="sampled", started_at=T0, warnings=["x"])
     assert r3.overall_line == "PASS WITH 1 WARNING"
+
+
+def test_http_failure_is_warning_in_sampled_mode_but_fail_in_full():
+    from borg_backup_integrity_check.report.models import ComponentReport
+    from borg_backup_integrity_check.restore.health import ApplicationHealthChecker
+
+    result = {
+        "http": {"code": 503, "url": "https://nc.example.org/nextcloud/"},
+        "sso": {"code": 302, "url": "x"},
+    }
+    sampled = ComponentReport(id="nextcloud", label="nextcloud", kind="app")
+    ApplicationHealthChecker._apply_http(result, sampled, None, sampled=True)
+    http = sampled.check("HTTP health")
+    assert http.status == "WARN" and "expected when bulk data is absent" in http.detail
+    full = ComponentReport(id="nextcloud", label="nextcloud", kind="app")
+    ApplicationHealthChecker._apply_http(result, full, None, sampled=False)
+    assert full.check("HTTP health").status == "FAIL"
+    # A genuinely dead endpoint (no code) is still flagged.
+    dead = ComponentReport(id="x", label="x", kind="app")
+    ApplicationHealthChecker._apply_http(
+        {"http": {"code": 0, "url": "u"}}, dead, None, sampled=True
+    )
+    assert dead.check("HTTP health").status == "WARN"

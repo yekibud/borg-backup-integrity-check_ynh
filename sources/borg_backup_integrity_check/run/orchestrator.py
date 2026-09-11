@@ -681,7 +681,9 @@ class IntegrityRun:
                 continue
             profile = self.profiles.find(cp.component.app.manifest_id) if cp.component.app else None
             try:
-                checker.check_app(cp.component, report, profile)
+                checker.check_app(
+                    cp.component, report, profile, sampled=self.options.mode != "full"
+                )
                 if report.data_kind == "mail":
                     checker.verify_mail(report)
             except RestoreHostError as exc:

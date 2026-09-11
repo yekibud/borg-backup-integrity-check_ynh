@@ -19,7 +19,11 @@ class ApplicationHealthChecker:
         self.agent = agent
 
     def check_app(
-        self, comp: Component, report: ComponentReport, profile: SamplingProfile | None = None
+        self,
+        comp: Component,
+        report: ComponentReport,
+        profile: SamplingProfile | None = None,
+        sampled: bool = True,
     ) -> None:
         app = comp.app
         settings = {}
@@ -45,7 +49,7 @@ class ApplicationHealthChecker:
         }
         result = self.agent.call("health", spec=spec, timeout=3600)
         self._apply_services(result, report)
-        self._apply_http(result, report, profile)
+        self._apply_http(result, report, profile, sampled)
         self._apply_db(result, report, db_name)
         self._apply_db_refs(result, report)
 
@@ -76,13 +80,20 @@ class ApplicationHealthChecker:
             )
 
     @staticmethod
-    def _apply_http(result: dict, report: ComponentReport, profile: SamplingProfile | None) -> None:
+    def _apply_http(
+        result: dict, report: ComponentReport, profile: SamplingProfile | None, sampled: bool = True
+    ) -> None:
         http = result.get("http")
         if not http:
             report.add_check("HTTP health", SKIPPED, "no domain/path known")
             return
         code = http.get("code", 0)
         ok_codes = set(profile.http_ok_codes) if profile and profile.http_ok_codes else HTTP_OK
+        # In sampled mode the bulk data is deliberately absent, so an app that won't fully serve
+        # (5xx, often maintenance mode) is a warning, not a backup failure - the core config, database
+        # and sampled objects are checked independently. In full mode the whole data set is present,
+        # so an HTTP failure is a real failure.
+        unhealthy_status = WARN if sampled else FAIL
         if code in ok_codes:
             report.add_check(
                 "HTTP health", PASS, f"{code} {http['url']}", VerificationLevel.HTTP_RESPONDING
@@ -99,7 +110,15 @@ class ApplicationHealthChecker:
                 "HTTP health", WARN, f"404 {http['url']}", VerificationLevel.HTTP_RESPONDING
             )
         else:
-            report.add_check("HTTP health", FAIL, f"HTTP {code or 'unreachable'} {http['url']}")
+            hint = ""
+            if code in (502, 503):
+                hint = " (app not fully serving; in sampled mode this is expected when bulk data is absent)"
+            report.add_check(
+                "HTTP health",
+                unhealthy_status,
+                f"HTTP {code or 'unreachable'} {http['url']}{hint}",
+                VerificationLevel.HTTP_RESPONDING if code else VerificationLevel.NOT_CHECKED,
+            )
         sso = result.get("sso")
         if sso:
             report.add_check(
