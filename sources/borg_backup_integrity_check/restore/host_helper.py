@@ -546,11 +546,15 @@ def _apply_owner(path: Path, entry: dict) -> None:
         sh(["chown", f"{user or ''}:{group or ''}", str(path)], timeout=60)
 
 
-def _last_operation_log() -> str | None:
-    rc, data, _ = yunohost_json(["log", "list", "--limit", "1"], timeout=120)
+def _last_operation_log(match: str = "backup_restore") -> str | None:
+    rc, data, _ = yunohost_json(["log", "list", "--limit", "8"], timeout=120)
     try:
-        return data["operation"][0]["path"] if isinstance(data, dict) else None
-    except (KeyError, IndexError, TypeError):
+        operations = data["operation"] if isinstance(data, dict) else []
+        for op in operations:
+            if match in str(op.get("name", "")):
+                return op.get("path") or op.get("name")
+        return operations[0].get("path") if operations else None
+    except (KeyError, IndexError, TypeError, AttributeError):
         return None
 
 

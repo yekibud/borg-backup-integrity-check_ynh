@@ -16,6 +16,7 @@ DATA_KIND_TITLES = {
     "config": "SYSTEM CONFIGURATION",
     "generic": "APPLICATION",
 }
+KIND_TITLES = {"system_data": "SYSTEM DATA", "system_conf": "SYSTEM CONFIGURATION"}
 
 
 def _fmt_dt(value: datetime | None) -> str:
@@ -122,13 +123,17 @@ def _manifest_block(report: RunReport, add) -> None:
 
 def _component_block(component: ComponentReport, add) -> None:
     title = DATA_KIND_TITLES.get(component.data_kind, "APPLICATION")
+    if component.data_kind == "generic" and component.kind in KIND_TITLES:
+        title = KIND_TITLES[component.kind]
     add(f"{title}: {component.label}")
     add(component.status)
     add("")
     for check in component.checks:
         detail = f"  {check.detail}" if check.detail else ""
         add(f"{check.name + ':':<26}{check.status}{detail}")
-    if component.sample_target or component.samples:
+    if component.sample_target and not component.samples and not component.candidates:
+        add(f"{'Recent objects:':<26}none (no sampleable objects in this backup)")
+    elif component.sample_target or component.samples:
         add(
             f"{'Recent objects:':<26}{component.samples_readable}/{len(component.samples)} readable"
             + (
@@ -146,7 +151,12 @@ def _component_block(component: ComponentReport, add) -> None:
         add("")
         add("Recent backed-up objects:")
         add("")
-        for sample in component.samples:
+        ordered = sorted(
+            component.samples,
+            key=lambda s: s.evidence.when.timestamp() if s.evidence.when else 0,
+            reverse=True,
+        )
+        for sample in ordered:
             add(_sample_line(sample))
     for note in component.notes:
         add(f"NOTE: {note}")

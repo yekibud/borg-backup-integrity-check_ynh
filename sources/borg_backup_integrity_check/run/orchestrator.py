@@ -756,10 +756,9 @@ class IntegrityRun:
             self.state_store.save(self.state)
 
     def _finish(self) -> None:
-        if self.report.cleanup_error or self.report.fatal_error:
-            # Re-render so the final report carries the cleanup outcome.
-            run_dir = self.state_store.run_dir(self.run_id)
-            (run_dir / "report.txt").write_text(render_report(self.report), encoding="utf-8")
+        # Re-render so the final report carries the cleanup outcome.
+        run_dir = self.state_store.run_dir(self.run_id)
+        (run_dir / "report.txt").write_text(render_report(self.report), encoding="utf-8")
         if self.state.status not in ("retained", "interrupted"):
             self.state.status = "failed" if self.report.overall == "FAIL" else "finished"
         self.state.finished_at = datetime.now()
