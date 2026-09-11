@@ -88,9 +88,30 @@ class RestoreHostBootstrap:
         if not result.get("ok"):
             raise RestoreHostError(f"could not deploy Borg credentials: {result.get('error')}")
 
+    def install_borg_client(self) -> str:
+        """Install a Borg client (before YunoHost is post-installed, so borg_ynh is not usable yet)."""
+        self._note(
+            f"installing the Borg client{' ' + self.borg_version if self.borg_version else ''} on the restore host"
+        )
+        result = self.agent.call(
+            "install-borg-client", args=["--borg-version", self.borg_version or ""], timeout=4200
+        )
+        if not result.get("ok"):
+            raise RestoreHostError(
+                f"could not install a Borg client on the restore host: {result.get('error') or result.get('pip_error')}"
+            )
+        if result.get("fallback"):
+            self._note(
+                f"using the distribution Borg package ({result.get('version')}) instead of {self.borg_version}"
+            )
+        return str(result.get("binary"))
+
     def install_borg_app(self) -> bool:
-        self._note("installing upstream borg_ynh (Borg client) on the restore host")
-        result = self.agent.call("install-borg-app", timeout=4200)
+        """Install upstream borg_ynh on the (already post-installed) restore host, timer disabled."""
+        self._note("installing upstream borg_ynh on the restore host")
+        result = self.agent.call(
+            "install-borg-app", args=["--ssh-port", str(self.ssh_port)], timeout=4200
+        )
         if not result.get("ok"):
             log.warning(
                 "borg_ynh installation failed: %s", result.get("log_tail", result.get("error"))
@@ -116,16 +137,12 @@ class RestoreHostBootstrap:
             notes.append(f"temporary volume mounted from {volume_device}")
         self.install_yunohost(major)
         self.deploy_borg_credentials(lock_wait)
-        borg_app = self.install_borg_app()
-        if not borg_app:
-            notes.append(
-                "borg_ynh could not be installed; falling back to the Debian borgbackup package"
-            )
-            self.agent.ssh.run(
-                "DEBIAN_FRONTEND=noninteractive apt-get install -y -q borgbackup", timeout=1800
-            )
+        # borg_ynh needs a post-installed YunoHost, which only happens during the restore, so at this
+        # point we install a plain Borg client (pinned to the production version when possible).
+        binary = self.install_borg_client()
+        notes.append(f"Borg client on restore host: {binary}")
         self.verify_borg_access()
-        return BootstrapResult(True, borg_app, True, notes)
+        return BootstrapResult(True, False, True, notes)
 
 
 def _repository_host(repository: str) -> str | None:

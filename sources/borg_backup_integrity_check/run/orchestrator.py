@@ -528,7 +528,8 @@ class IntegrityRun:
         self.state.phase = "restoring"
         self.state_store.save(self.state)
         assert self.plan is not None
-        engine = CoreRestoreEngine(self.agent, self.aggregates, int(self.config.vm_ssh_port))
+        ssh_port = self.provider.maintenance_ssh_port(int(self.config.vm_ssh_port))
+        engine = CoreRestoreEngine(self.agent, self.aggregates, ssh_port)
         domains = self._domains()
         main_domain = self._main_domain()
         if self.plan.system_conf:
@@ -543,11 +544,25 @@ class IntegrityRun:
                 engine.apply_outcome(report, outcomes[cp.component.id], "Restore")
                 report.finalize()
                 self.report.components.append(report)
+            # The system restore ran YunoHost's postinstall; pick up domains it created.
+            host_domains = self.agent.call("domains", timeout=300).get("domains", []) or []
+            domains = sorted(set(domains) | set(host_domains))
         else:
             for note in engine.ensure_domains(domains, main_domain):
                 self.report.warnings.append(note)
         actions = engine.quarantine(sorted(set(domains + ([main_domain] if main_domain else []))))
         self.report.infos.append("restore host isolation: " + ", ".join(actions))
+        # borg_ynh needs a post-installed YunoHost, so it is installed now (timer disabled), mirroring
+        # production. The bootstrap already installed a plain Borg client, so this is best-effort.
+        if self.config.restore_borg_app:
+            borg_bootstrap = RestoreHostBootstrap(
+                self.agent, self.borg, self.progress, ssh_port=ssh_port
+            )
+            if not borg_bootstrap.install_borg_app():
+                self.report.warnings.append(
+                    "The upstream Borg app could not be installed on the restore server "
+                    "(the plain Borg client installed during bootstrap is used instead)."
+                )
         for cp in self.plan.apps:
             self._check_interrupt()
             comp = cp.component
