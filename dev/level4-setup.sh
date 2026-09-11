@@ -71,7 +71,7 @@ app_setup() {
     "$VM" push "$vm"
     if "$VM" ssh "$vm" "test -d /etc/yunohost/apps/$APP"; then
         log "upgrading $APP from local sources"
-        "$VM" ssh "$vm" "yunohost app upgrade $APP -f /root/bbic-src" | tail -n 3
+        "$VM" ssh "$vm" "yunohost app upgrade $APP -f /root/bbic-src --force" | tail -n 3
     else
         log "installing $APP (reusing borg_ynh, static provider will be used at run time)"
         "$VM" ssh "$vm" "yunohost app install /root/bbic-src --force --args 'cloud_provider=hetzner&provider_token=0000000000000000000000000000000000000000000000000000000000000000&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=1&borg_app=borg&borg_repository_remote=ssh://root@$PROD_LAB_IP$BORG_REPO_PATH&restore_mode=sampled&sample_size=20&schedule_enabled=0&schedule_time=09:00&report_email='" | tail -n 5

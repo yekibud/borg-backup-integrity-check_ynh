@@ -330,17 +330,18 @@ class ManifestComparator:
             if row.previous < self.t.min_files_for_pct:
                 return
             up, down, noun = self.t.count_growth_pct, self.t.count_shrink_pct, "object count"
+        subject = row.label if row.label.startswith("Total") else f"{row.label} {noun}"
         if row.change_pct >= up:
             row.anomaly = Anomaly(
                 "warning",
-                f"{row.label} {noun} increased {format_pct(row.change_pct, signed=False)} since the previous backup ({row.fmt_previous()} -> {row.fmt_current()}).",
+                f"{subject} increased {format_pct(row.change_pct, signed=False)} since the previous backup ({row.fmt_previous()} -> {row.fmt_current()}).",
                 row.component,
                 row.metric,
             )
         elif row.change_pct <= -down:
             row.anomaly = Anomaly(
                 "warning",
-                f"{row.label} {noun} decreased {format_pct(abs(row.change_pct), signed=False)} since the previous backup ({row.fmt_previous()} -> {row.fmt_current()}).",
+                f"{subject} decreased {format_pct(abs(row.change_pct), signed=False)} since the previous backup ({row.fmt_previous()} -> {row.fmt_current()}).",
                 row.component,
                 row.metric,
             )
