@@ -49,7 +49,7 @@ Key design decisions:
 
 * [x] M1 - research, architecture, generic layers (borg/discovery/sampling/evidence/manifest/report), providers, orchestrator, CLI, YunoHost packaging files, 64 unit tests incl. a fake end-to-end pipeline.
 * [x] M2 - local VirtualBox workflow (`dev/vm.sh`: cloud image + NoCloud seed + NAT/intnet, works), Level 3 synthetic Borg repository tests pass with the real Borg 1.4.5 binary (`tests/integration`, marker `borg`); Level 2 YunoHost UX tests (`dev/ynh-test.sh`) pass on a real YunoHost 12.1.41.2 VM (68/69, the remaining one was a test-suite issue: data_dir survives `app remove` without `--purge`).
-* [ ] M3 - Level 4 local end-to-end (production VM + static-provider target VM).
+* [~] M3 - Level 4 local end-to-end works: `bbic-prod` (YunoHost 12.1.41.2 + borg_ynh with a local repo + filebrowser + synthetic photos/documents/mails, real `borg` backups) -> this app on `bbic-prod` with the `static` provider -> `bbic-target` (fresh Debian 12 cloud image + maintenance sshd). Verified end to end: manifest + comparison against stored history (second run flagged +86.9% objects correctly), borg check + dry-run extraction, YunoHost install on the target, system parts restore (LDAP/settings/certs) with postinstall from the archive, quarantine, sparse app restore through `yunohost backup restore`, sampled payload placed in the live data dir, evidence (EXIF dimensions, ODT, e-mail subjects/senders), service/HTTP/SSO checks, report e-mail path. Open: Dovecot verification of restored messages (index-before-search fix deployed, awaiting confirmation) and borg_ynh installation on the target (failure now surfaced in the report).
 * [ ] M4 - Level 5 real Hetzner / DigitalOcean runs (billable, needs credentials from the maintainer).
 * [ ] M5 - Level 6 real Borg repository run.
 
@@ -63,6 +63,19 @@ Key design decisions:
 * Full mode volume handling mounts the volume at `/home` and bind-mounts `/var/mail`; `/var/www` and databases stay on the root disk.
 * Hetzner IPv6: the API returns a /64; we use `<prefix>::1`.
 * `dev/get-borg.sh` downloads the standalone Borg binary for local tests only; GPG verification needs the Borg release key, which could not be fetched from keyservers in this environment (signature unverified, binary never deployed anywhere).
+
+## Level 4 quick reference
+
+```bash
+dev/vm.sh create bbic-prod 12 10 && dev/vm.sh yunohost bbic-prod bbic-prod.test && dev/vm.sh snapshot bbic-prod clean-yunohost
+dev/level4-setup.sh prod bbic-prod filebrowser      # borg_ynh (local repo /opt/borg-repo), app, data, backup
+dev/level4-setup.sh app bbic-prod                   # install/upgrade this app (reuses borg_ynh; dedicated key authorised)
+dev/vm.sh create bbic-target 12 20 && dev/level4-setup.sh target bbic-target bbic-prod && dev/vm.sh snapshot bbic-target prepared
+dev/level4-setup.sh run bbic-prod sampled           # ~15 min; report on bbic-prod: borg-backup-integrity-check report
+dev/level4-setup.sh reset-target bbic-target        # back to the prepared snapshot before the next run
+```
+
+Gotchas learned: `VBoxManage snapshot take --live` on a 4 GB VM can take >30 min (memory image never converges) - use offline snapshots (`dev/vm.sh snapshot` stops the VM first); `yunohost app upgrade -f DIR` is a no-op for an unchanged version unless `--force`; string patches applied with Python must be verified (ruff reformatting silently broke two of them).
 
 ## Running things
 
