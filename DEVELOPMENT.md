@@ -48,7 +48,7 @@ Key design decisions:
 ## Milestones
 
 * [x] M1 - research, architecture, generic layers (borg/discovery/sampling/evidence/manifest/report), providers, orchestrator, CLI, YunoHost packaging files, 64 unit tests incl. a fake end-to-end pipeline.
-* [~] M2 - local VirtualBox workflow (`dev/vm.sh`: cloud image + NoCloud seed + NAT/intnet, works), Level 3 synthetic Borg repository tests pass with the real Borg 1.4.5 binary (`tests/integration`, marker `borg`); Level 2 YunoHost UX tests (`dev/ynh-test.sh`) written, not yet executed on a VM.
+* [x] M2 - local VirtualBox workflow (`dev/vm.sh`: cloud image + NoCloud seed + NAT/intnet, works), Level 3 synthetic Borg repository tests pass with the real Borg 1.4.5 binary (`tests/integration`, marker `borg`); Level 2 YunoHost UX tests (`dev/ynh-test.sh`) pass on a real YunoHost 12.1.41.2 VM (68/69, the remaining one was a test-suite issue: data_dir survives `app remove` without `--purge`).
 * [ ] M3 - Level 4 local end-to-end (production VM + static-provider target VM).
 * [ ] M4 - Level 5 real Hetzner / DigitalOcean runs (billable, needs credentials from the maintainer).
 * [ ] M5 - Level 6 real Borg repository run.
@@ -57,6 +57,7 @@ Key design decisions:
 
 * **Upstream bug (YunoHost 12.1.41.2):** a `password`-type install question hidden by a `visible` condition makes `app_install` crash (`TypeError ... NoneType` in `Popen` env: the core re-injects every password option into the script env without checking for `None`). Workaround in this app: a single always-visible `provider_token` question (stored under the selected provider's name by the install script) and an always-visible optional `borg_passphrase`. Worth reporting upstream (`src/app.py`, "Reinject user-provider passwords").
 
+* Verified on a real YunoHost 12.1.41.2: install form, secret storage, config panel read/apply, dynamic select getters, actions, timer regeneration, upgrade, backup/restore, failed-install cleanup. Core limitation found: `yunohost app config set app panel.section.option --value` cannot evaluate a `visible` condition referencing another option (KeyError); dependent options must be submitted at section level with `--args`, as the webadmin does.
 * Not yet exercised against a real YunoHost: the config panel getters (`choices:` YAML for dynamic selects), the exact env value the core sends for untouched password fields, and `type = "time"` handling in install forms.
 * `host_helper.cmd_install_borg_app` installs borg_ynh from the catalog (`yunohost app install borg`); the archive name/version of borg on the restore host is not pinned to the production one.
 * Full mode volume handling mounts the volume at `/home` and bind-mounts `/var/mail`; `/var/www` and databases stay on the root disk.

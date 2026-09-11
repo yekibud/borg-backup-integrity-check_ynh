@@ -26,6 +26,11 @@ borg-backup-integrity-check cleanup [--dry-run] # find and destroy stale labelle
 borg-backup-integrity-check test-config
 ```
 
+Settings can also be changed from the command line with the standard YunoHost config commands, e.g.
+`yunohost app config set borg-backup-integrity-check sampling.main.sample_size --value 30`. Options that depend on
+another option (provider-specific fields) must be submitted together with it at section level, exactly like the web
+admin does: `yunohost app config set borg-backup-integrity-check provider.main --args "cloud_provider=hetzner&hetzner_token=..."`.
+
 All commands use the same configuration as the web admin (app settings + the root-only secret file `/etc/borg-backup-integrity-check/secrets.json`). Credentials never appear in logs, reports or command arguments.
 
 ## Inspecting a retained server

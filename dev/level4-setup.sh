@@ -83,7 +83,7 @@ app_setup() {
 run_check() {
     local vm="$1" mode="${2:-sampled}"
     log "running the integrity check on $vm against $TARGET_LAB_IP:$MAINT_PORT ($mode)"
-    "$VM" ssh "$vm" "BBIC_STATIC_HOST=$TARGET_LAB_IP:$MAINT_PORT $APP run --provider static --mode $mode --verbose" 2>&1 | tee "$HERE/local/level4-run-$(date +%Y%m%d%H%M%S).log" | tail -n 120
+    "$VM" ssh "$vm" "BBIC_STATIC_HOST=$TARGET_LAB_IP:$MAINT_PORT $APP --verbose run --provider static --mode $mode" 2>&1 | tee "$HERE/local/level4-run-$(date +%Y%m%d%H%M%S).log" | tail -n 120
 }
 
 case "${1:-}" in

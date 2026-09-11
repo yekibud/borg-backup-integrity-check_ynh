@@ -20,7 +20,7 @@ PP="test-passphrase-Xy7"
 section() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 
 section "clean slate"
-yunohost app remove "$APP" >/dev/null 2>&1 || true
+yunohost app remove "$APP" --purge >/dev/null 2>&1 || true
 
 section "1. install with the native form (CLI --args), hetzner, manual borg source"
 yunohost app install "$SRC" --force --args "cloud_provider=hetzner&provider_token=$TOKEN&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=0&borg_repository=ssh://sam@domain.tld:22/~/backup&borg_passphrase=$PP&restore_mode=sampled&sample_size=15&schedule_enabled=1&schedule_time=09:30&report_email=" >/tmp/bbic-install.log 2>&1 && ok "install succeeded" || { ko "install failed"; tail -n 40 /tmp/bbic-install.log; }
@@ -43,7 +43,7 @@ check "service registered in YunoHost" 'yunohost service status $APP >/dev/null'
 check "main timer enabled" 'systemctl is-enabled $APP.timer >/dev/null'
 check "timer calendar matches 09:30 daily" 'systemctl show $APP.timer -p TimersCalendar --value | grep -q "09:30:00"'
 check "janitor timer enabled" 'systemctl is-enabled $APP-janitor.timer >/dev/null'
-check "service not enabled at boot" '! systemctl is-enabled $APP.service >/dev/null 2>&1'
+check "service not enabled at boot (static)" '[ "$(systemctl is-enabled $APP.service 2>/dev/null)" != "enabled" ]'
 
 section "4. config panel: read"
 GET=$(yunohost app config get "$APP" --full --output-as json)
@@ -70,21 +70,23 @@ yunohost app config set "$APP" schedule.main.schedule_enabled --value 1 >/dev/nu
 check "timer re-enabled" 'systemctl is-enabled $APP.timer >/dev/null'
 
 section "6. config panel: secrets replacement"
+# NB: options with a `visible` condition must be set at section level (--args), like the webadmin does;
+# a single-key `config set panel.section.option` cannot evaluate the condition (core limitation).
 BEFORE=$($CLI secret status hetzner_token --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["hetzner_token"]["fingerprint"])')
-yunohost app config set "$APP" provider.main.hetzner_token --value "" >/dev/null 2>&1 || true
+yunohost app config set "$APP" provider.main --args "cloud_provider=hetzner&hetzner_token=" >/dev/null 2>&1 && ok "submit panel with blank token" || ko "submit panel with blank token"
 AFTER=$($CLI secret status hetzner_token --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["hetzner_token"]["fingerprint"])')
 check "blank replacement keeps the token" '[ "$BEFORE" = "$AFTER" ]'
-yunohost app config set "$APP" provider.main.hetzner_token --value "$NEWTOKEN" >/dev/null 2>&1 && ok "replace token via panel" || ko "replace token via panel"
+yunohost app config set "$APP" provider.main --args "cloud_provider=hetzner&hetzner_token=$NEWTOKEN" >/dev/null 2>&1 && ok "replace token via panel" || ko "replace token via panel"
 AFTER2=$($CLI secret status hetzner_token --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["hetzner_token"]["fingerprint"])')
 check "token fingerprint changed" '[ "$BEFORE" != "$AFTER2" ]'
 check "new token not in settings.yml nor logs" '! grep -q "$NEWTOKEN" /etc/yunohost/apps/$APP/settings.yml && ! grep -rq "$NEWTOKEN" /var/log/yunohost/categories/operation/ 2>/dev/null'
 
 section "7. provider switch exposes DO fields"
-yunohost app config set "$APP" provider.main.cloud_provider --value digitalocean >/dev/null 2>&1 && ok "switch provider" || ko "switch provider"
+yunohost app config set "$APP" provider.main --args "cloud_provider=digitalocean" >/dev/null 2>&1 && ok "switch provider" || ko "switch provider"
 check "provider switched" '[ "$(setting cloud_provider)" = "digitalocean" ]'
-yunohost app config set "$APP" provider.main.digitalocean_token --value "dop_v1_$(printf 'a%.0s' $(seq 1 64))" >/dev/null 2>&1 && ok "store DO token" || ko "store DO token"
+yunohost app config set "$APP" provider.main --args "cloud_provider=digitalocean&digitalocean_token=dop_v1_$(printf 'a%.0s' $(seq 1 64))" >/dev/null 2>&1 && ok "store DO token" || ko "store DO token"
 check "DO token configured" '$CLI secret status digitalocean_token | grep -q configured'
-yunohost app config set "$APP" provider.main.cloud_provider --value hetzner >/dev/null 2>&1 || true
+yunohost app config set "$APP" provider.main --args "cloud_provider=hetzner" >/dev/null 2>&1 || true
 
 section "8. validation"
 if yunohost app config set "$APP" sampling.main.components --value "bad;value!" >/dev/null 2>&1; then ko "invalid components accepted"; else ok "invalid components rejected"; fi
@@ -122,7 +124,7 @@ check "timer restored" 'systemctl is-enabled $APP.timer >/dev/null'
 yunohost backup delete bbic_test >/dev/null 2>&1 || true
 
 section "13. failed install cleanup"
-yunohost app remove "$APP" >/dev/null 2>&1 || true
+yunohost app remove "$APP" --purge >/dev/null 2>&1 || true
 if yunohost app install "$SRC" --force --args "cloud_provider=hetzner&provider_token=&hetzner_location=fsn1&hetzner_server_type=auto&use_borg_ynh=0&borg_repository=ssh://x@y/./r&borg_passphrase=$PP&restore_mode=sampled&sample_size=20&schedule_enabled=1&schedule_time=09:00&report_email=" >/dev/null 2>&1; then ko "install without token unexpectedly succeeded"; else ok "install without token refused"; fi
 check "no leftovers after failed install" '[ ! -e $CLI ] && [ ! -d /etc/yunohost/apps/$APP ]'
 
