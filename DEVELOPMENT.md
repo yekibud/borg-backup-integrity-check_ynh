@@ -65,6 +65,26 @@ Verified end-to-end (Level 4) report excerpt::
 * [ ] M4 - Level 5 real Hetzner / DigitalOcean runs (billable, needs credentials from the maintainer).
 * [ ] M5 - Level 6 real Borg repository run.
 
+## Level 5/6 real test (Hetzner Cloud + a real Hetzner Storage Box)
+
+Exercised against a real Storage Box repo (`ssh://uNNNNN@...:23/~/backup`, 15 components x 5 generations,
+including a 256 GB / 276k-file Nextcloud, Immich, Synapse, Forgejo, ...). Findings:
+
+* **Dedicated append-only key is the right model** (the maintainer pushed back on copying the real key
+  onto the disposable VM). The app generates its own key; authorize its public key once on the repo server
+  with a forced command, e.g. `command="borg serve --append-only --restrict-to-path /home/backup",restrict <pubkey>`.
+  Hetzner Storage Boxes honour this (there was already a `root@borgtest.tld` key using the same pattern).
+  The disposable VM then only ever gets a read/append-only key; the admin's real key never leaves the server.
+  Set `borg_ssh_key = dedicated`; the config panel shows the public key to authorize.
+* **`borg_repository_remote` is a footgun if stale.** It overrides the URL the restore VM uses; a value left
+  over from a local test (a LAN IP) made the cloud VM try to reach an unreachable address. Leave it empty
+  unless the restore host genuinely needs a different URL than the production server.
+* **Full-listing cost is real** and motivated the `listed`/`borg info` optimization: inspecting all 15
+  components' full listings took ~25 min over the internet; skipping unselected components' listings cuts
+  that to the few components actually sampled.
+* Cleanup verified: a mid-run failure still destroyed the provisioned Hetzner VM (confirmed via the API,
+  no leftover billable resources).
+
 ## Known gaps / open questions
 
 * **Upstream bug (YunoHost 12.1.41.2):** a `password`-type install question hidden by a `visible` condition makes `app_install` crash (`TypeError ... NoneType` in `Popen` env: the core re-injects every password option into the script env without checking for `None`). Workaround in this app: a single always-visible `provider_token` question (stored under the selected provider's name by the install script) and an always-visible optional `borg_passphrase`. Worth reporting upstream (`src/app.py`, "Reinject user-provider passwords").
