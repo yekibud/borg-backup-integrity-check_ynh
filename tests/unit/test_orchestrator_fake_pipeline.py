@@ -16,7 +16,7 @@ from tests.conftest import NOW, dir_items, make_item
 from borg_backup_integrity_check.borg.models import ArchiveRef, ArchiveStats, RepositoryInfo
 from borg_backup_integrity_check.config import AppConfig, Paths
 from borg_backup_integrity_check.evidence.extractors import EvidenceExtractor
-from borg_backup_integrity_check.providers.base import ManagedResource
+from borg_backup_integrity_check.providers.base import ManagedResource, ProviderCapabilities
 from borg_backup_integrity_check.providers.static import StaticHostProvider
 from borg_backup_integrity_check.report.models import VerificationLevel
 from borg_backup_integrity_check.run import orchestrator as orch
@@ -105,6 +105,14 @@ class FakeBorgClient:
 class FakeProvider(StaticHostProvider):
     name = "fakecloud"
     display_name = "Fake Cloud"
+    capabilities = ProviderCapabilities(
+        regions=False,
+        sizes=False,
+        volumes=False,
+        pricing=False,
+        user_data=False,
+        ssh_keys_registry=False,
+    )
 
     def __init__(self):
         super().__init__("198.51.100.5", 22022)

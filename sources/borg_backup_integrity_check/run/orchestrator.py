@@ -737,6 +737,12 @@ class IntegrityRun:
             )
             self.state_store.save(self.state)
             return
+        if not self.provider.capabilities.disposable:
+            self.state.cleanup_status = "not_needed"
+            self.state.server_id = None
+            self.state_store.save(self.state)
+            self.report.cleanup_status = f"host {self.state.host_address} was not destroyed ({self.provider.display_name}); reset it yourself"
+            return
         manager = LifecycleManager(self.provider, self.state_store, self.config.owner_id)
         try:
             result = manager.destroy_run(self.state, reason="run finished")

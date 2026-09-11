@@ -30,6 +30,9 @@ class ProviderCapabilities:
     pricing: bool = False
     tags_are_key_value: bool = True
     ssh_keys_registry: bool = True
+    disposable: bool = (
+        True  # False when "destroy" cannot actually wipe the host (pre-existing host)
+    )
 
 
 @dataclass(frozen=True)

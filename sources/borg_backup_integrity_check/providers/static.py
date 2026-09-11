@@ -38,6 +38,7 @@ class StaticHostProvider(CloudProvider):
         pricing=False,
         user_data=False,
         ssh_keys_registry=False,
+        disposable=False,
     )
 
     def __init__(self, address: str, ssh_port: int = 22) -> None:
