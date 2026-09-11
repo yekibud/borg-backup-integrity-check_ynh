@@ -303,18 +303,31 @@ def cmd_install_borg_app(ns: argparse.Namespace) -> dict:
     env = borg_env()
     passphrase = env.get("BORG_PASSPHRASE", "")
     repo = env.get("BORG_REPO", "")
-    args = f"repository={_q(repo)}&passphrase={_q(passphrase)}&conf=0&data=0&apps=exclude:borg&on_calendar=2099-01-01 00:00:00&mailalert=never"
+    args = (
+        f"repository={_q(repo)}&passphrase={_q(passphrase)}&conf=0&data=0&apps=exclude:borg"
+        "&on_calendar=2099-01-01 00:00:00&mailalert=never"
+    )
     proc = sh(
         ["yunohost", "app", "install", ns.source or "borg", "--force", "--args", args], timeout=3600
     )
-    ok = proc.returncode == 0 and Path("/etc/yunohost/apps/borg").is_dir()
+    installed = Path("/etc/yunohost/apps/borg").is_dir()
     sh(["systemctl", "disable", "--now", "borg.timer"], timeout=60)
+    if proc.returncode != 0 or not installed:
+        tail = (
+            proc.stdout.decode("utf-8", "replace")[-1500:]
+            + proc.stderr.decode("utf-8", "replace")[-1500:]
+        ).strip()
+        return {
+            "ok": False,
+            "rc": proc.returncode,
+            "log_tail": tail or f"rc={proc.returncode}, app dir present={installed}",
+        }
     sh(["yunohost", "app", "setting", "borg", "pruning_enabled", "-v", "false"], timeout=120)
-    return {
-        "ok": ok,
-        "rc": proc.returncode,
-        "log_tail": proc.stderr.decode("utf-8", "replace")[-2000:],
-    }
+    if Path("/var/www/borg/venv/bin/borg").exists():
+        _set_env_value("BBIC_BORG_BINARY", "/var/www/borg/venv/bin/borg")
+    if ns.ssh_port:
+        reopen_port(int(ns.ssh_port))
+    return {"ok": True, "rc": proc.returncode}
 
 
 def _q(value: str) -> str:
@@ -855,13 +868,19 @@ def cmd_mail_verify(ns: argparse.Namespace) -> dict:
     results = []
     if not shutil.which("doveadm"):
         return {"ok": False, "error": "doveadm not available", "objects": []}
+    # Files copied straight into the maildirs are only visible once Dovecot has synced them:
+    # index every mailbox of every involved user first (a first search alone returns nothing).
+    for user in sorted({o.get("user") for o in spec.get("objects", []) if o.get("user")}):
+        sh(["doveadm", "index", "-u", user, "*"], timeout=600)
+        sh(["doveadm", "mailbox", "status", "-u", user, "messages", "*"], timeout=120)
     for obj in spec.get("objects", []):
         message_id, user = obj.get("message_id"), obj.get("user")
         verified = False
         detail = ""
         if message_id and user:
+            needle = message_id.strip().strip("<>")
             proc = sh(
-                ["doveadm", "search", "-u", user, "HEADER", "Message-ID", message_id], timeout=120
+                ["doveadm", "search", "-u", user, "HEADER", "Message-ID", needle], timeout=120
             )
             verified = proc.returncode == 0 and bool(proc.stdout.strip())
             detail = proc.stderr.decode("utf-8", "replace")[-200:] if not verified else ""
