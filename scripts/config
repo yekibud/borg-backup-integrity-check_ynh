@@ -37,17 +37,18 @@ _bbic_catalog_choices() {
 }
 
 _bbic_start_run() {
-    local mode="$1"
-    local retain_flag=""
-    if [ "${manual_retain:-0}" == "1" ] || [ "${manual_retain:-}" == "true" ]; then
-        retain_flag="--retain"
+    # usage: _bbic_start_run <mode|""> [extra flag]
+    local mode="$1" extra_flags="${2:-}"
+    if [ -z "$extra_flags" ] && { [ "${manual_retain:-0}" == "1" ] || [ "${manual_retain:-}" == "true" ]; }; then
+        extra_flags="--retain"
     fi
+    local label="${mode:-inspection only}"
     local unit
     unit="$app-manual-$(date +%Y%m%d%H%M%S)"
     # shellcheck disable=SC2086
-    systemd-run --unit="$unit" --description="Manual $app run ($mode)" --property="StandardOutput=append:$bbic_log_dir/$app.log" \
-        "$bbic_cli" run --mode "$mode" --email --quiet $retain_flag
-    ynh_print_info "Integrity check started in the background (unit $unit, mode $mode). Follow it with: journalctl -u $unit -f ; the report will be emailed and is available with 'borg-backup-integrity-check report'."
+    systemd-run --unit="$unit" --description="Manual $app run ($label)" --property="StandardOutput=append:$bbic_log_dir/$app.log" \
+        "$bbic_cli" run ${mode:+--mode "$mode"} --email --quiet $extra_flags
+    ynh_print_info "Integrity check started in the background (unit $unit, $label). Follow it with: journalctl -u $unit -f ; the report will be emailed and is available with 'borg-backup-integrity-check report'."
 }
 
 #=================================================
@@ -204,8 +205,14 @@ run__test_provider() {
     "$bbic_cli" test-config provider || ynh_die "Cloud provider test failed (see above)"
 }
 
+run__verify_config() {
+    ynh_print_info "Verifying Borg repository access and cloud provider credentials..."
+    "$bbic_cli" test-config all || ynh_die "Configuration test failed (see above)"
+}
+
 run__run_sampled() { _bbic_start_run sampled; }
 run__run_full() { _bbic_start_run full; }
+run__run_inspect() { _bbic_start_run "" --inspect-only; }
 
 run__show_status() {
     "$bbic_cli" status

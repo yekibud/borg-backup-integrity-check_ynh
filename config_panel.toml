@@ -407,6 +407,24 @@ name.fr = "Planification et rapports"
 name.en = "Run & Maintenance"
 name.fr = "Exécution et maintenance"
 
+    [operations.verify]
+    name.en = "Verify without a restore server"
+    name.fr = "Vérifier sans serveur de restauration"
+    help.en = "Checks that never create a cloud server. The inspection also records a manifest, so it builds the comparison baseline."
+    help.fr = "Vérifications qui ne créent jamais de serveur cloud. L'inspection enregistre aussi un manifeste et construit donc la base de comparaison."
+
+        [operations.verify.verify_config]
+        ask.en = "Verify configuration (Borg repository + cloud provider)"
+        ask.fr = "Vérifier la configuration (dépôt Borg + fournisseur cloud)"
+        type = "button"
+        style = "info"
+
+        [operations.verify.run_inspect]
+        ask.en = "Inspect backups now (no server, no cost)"
+        ask.fr = "Inspecter les sauvegardes maintenant (sans serveur, sans coût)"
+        type = "button"
+        style = "info"
+
     [operations.run]
     name.en = "Run an integrity check now"
     name.fr = "Lancer une vérification maintenant"

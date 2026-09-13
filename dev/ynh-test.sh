@@ -97,6 +97,8 @@ if yunohost app action run "$APP" source.tests.test_borg >/tmp/bbic-action.log 2
 check "action output redacts passphrase" '! grep -q "$PP" /tmp/bbic-action.log'
 if yunohost app action run "$APP" provider.tests.test_provider >/tmp/bbic-action2.log 2>&1; then ko "test_provider unexpectedly succeeded (dummy token)"; else ok "test_provider action reports failure for dummy token"; fi
 check "action output redacts token" '! grep -q "$NEWTOKEN" /tmp/bbic-action2.log'
+if yunohost app action run "$APP" operations.verify.verify_config >/tmp/bbic-action3.log 2>&1; then ko "verify_config unexpectedly succeeded (dummy repo and token)"; else ok "verify_config action reports failure for dummy configuration"; fi
+check "verify_config output redacts secrets" '! grep -qE "$PP|$NEWTOKEN" /tmp/bbic-action3.log'
 yunohost app action run "$APP" operations.maintenance.show_status >/dev/null 2>&1 && ok "show_status action" || ko "show_status action"
 
 section "10. CLI uses the canonical configuration"
