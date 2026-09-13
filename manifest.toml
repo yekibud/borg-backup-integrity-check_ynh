@@ -9,12 +9,12 @@ description.fr = "Vérifie régulièrement que vos sauvegardes Borg sont utilisa
 
 version = "0.1.0~ynh1"
 
-maintainers = []
+maintainers = ["yekibud"]
 
 [upstream]
 license = "GPL-3.0-or-later"
-code = "https://github.com/YunoHost-Apps/borg-backup-integrity-check_ynh"
-admindoc = "https://github.com/YunoHost-Apps/borg-backup-integrity-check_ynh/blob/main/doc/ADMIN.md"
+code = "https://github.com/yekibud/borg-backup-integrity-check_ynh"
+admindoc = "https://github.com/yekibud/borg-backup-integrity-check_ynh/blob/main/doc/ADMIN.md"
 
 [integration]
 yunohost = ">= 12.1.28"
