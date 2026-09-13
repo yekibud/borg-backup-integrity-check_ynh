@@ -23,14 +23,14 @@ Borg Backup Integrity regularly proves that your Borg backups are usable: it loc
 
 ## Developer info
 
-Please send your pull request to the [`testing` branch](https://github.com/yekibud/borg-backup-integrity-check_ynh/tree/testing).
+Please send your pull request to the [`main` branch](https://github.com/yekibud/borg-backup-integrity-check_ynh/tree/main).
 
-To try the `testing` branch:
+To try the `main` branch:
 
 ```bash
-sudo yunohost app install https://github.com/yekibud/borg-backup-integrity-check_ynh/tree/testing --debug
+sudo yunohost app install https://github.com/yekibud/borg-backup-integrity-check_ynh --debug
 or
-sudo yunohost app upgrade borg-backup-integrity-check -u https://github.com/yekibud/borg-backup-integrity-check_ynh/tree/testing --debug
+sudo yunohost app upgrade borg-backup-integrity-check -u https://github.com/yekibud/borg-backup-integrity-check_ynh --debug
 ```
 
 **More info regarding app packaging:** <https://yunohost.org/packaging_apps>
