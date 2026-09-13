@@ -16,7 +16,9 @@ from borg_backup_integrity_check.borg.layout import (
 )
 from borg_backup_integrity_check.borg.models import ArchiveItem, ArchiveRef
 
-NOW = datetime(2026, 9, 10, 9, 0, 0)
+# Anchored on the real clock: the pipeline checks backup freshness against datetime.now(),
+# so fixtures dated from a fixed day would go stale and fail the suite a day later.
+NOW = datetime.now().replace(microsecond=0)
 
 
 def make_item(

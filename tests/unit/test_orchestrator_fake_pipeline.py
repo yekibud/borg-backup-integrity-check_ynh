@@ -22,7 +22,9 @@ from borg_backup_integrity_check.report.models import VerificationLevel
 from borg_backup_integrity_check.run import orchestrator as orch
 from borg_backup_integrity_check.run.state import RunStateStore
 
-T_BACKUP = datetime(2026, 9, 10, 2, 0, 0)
+T_PREVIOUS = NOW - timedelta(days=1, hours=7)
+T_BACKUP = NOW - timedelta(hours=7)
+T_NEWER = NOW - timedelta(hours=1)
 
 
 def _jpeg(width=640, height=480):
@@ -50,18 +52,22 @@ class FakeBorgClient:
     def list_archives(self):
         names = ["auto_conf", "auto_data", "auto_filebox"]
         refs = []
-        for day in (9, 10):
+        for generation in (T_PREVIOUS, T_BACKUP):
             for i, n in enumerate(names):
-                start = datetime(2026, 9, day, 2, i, 0)
+                start = generation + timedelta(minutes=i)
                 refs.append(
-                    ArchiveRef(name=f"{n}-{start:%Y-%m-%dT%H:%M:%S}", id=f"{n}{day}", start=start)
+                    ArchiveRef(
+                        name=f"{n}-{start:%Y-%m-%dT%H:%M:%S}",
+                        id=f"{n}{generation:%Y%m%d%H%M}",
+                        start=start,
+                    )
                 )
         return refs
 
     def archive_stats(self, archive):
         listing = self.listings[archive.split("-")[0]]
         size = sum(i.size for i in listing if i.is_file)
-        scale = 0.9 if "2026-09-09" in archive else 1.0
+        scale = 0.9 if f"{T_PREVIOUS:%Y-%m-%dT%H:%M}" in archive else 1.0
         return ArchiveStats(
             int(size * scale),
             int(size * scale / 2),
@@ -260,7 +266,7 @@ class FakeAgent:
         if command == "quarantine":
             return {"ok": True, "actions": ["hosts", "postfix sink"]}
         if command == "borg-test":
-            return {"ok": True, "archives": ["auto_conf-2026-09-10T02:00:00"]}
+            return {"ok": True, "archives": [f"auto_conf-{T_BACKUP:%Y-%m-%dT%H:%M:%S}"]}
         return {"ok": True, "rc": 0}
 
 
@@ -410,7 +416,7 @@ def test_full_pipeline_sampled_run_passes_and_cleans_up(pipeline, capsys):
 
     assert report.fatal_error is None, report.fatal_error
     assert report.overall in ("PASS", "PASS WITH WARNINGS"), text
-    assert report.backup_time == datetime(2026, 9, 10, 2, 2, 0)
+    assert report.backup_time == T_BACKUP + timedelta(minutes=2)
     ids = {c.id: c for c in report.components}
     assert set(ids) == {"conf_ldap", "conf_ynh_settings", "filebox", "data_mail"}
     assert ids["conf_ldap"].status == "PASS"
@@ -491,11 +497,15 @@ def test_pipeline_second_run_compares_with_history_and_flags_missing(pipeline):
 
     def newer():
         refs = [
-            r for r in original() if not (r.name.startswith("auto_filebox") and "09-10" in r.name)
+            r for r in original() if not (r.name.startswith("auto_filebox") and r.start >= T_BACKUP)
         ]
         return refs + [
-            ArchiveRef("auto_conf-2026-09-11T02:00:00", "c11", datetime(2026, 9, 11, 2, 0)),
-            ArchiveRef("auto_data-2026-09-11T02:01:00", "d11", datetime(2026, 9, 11, 2, 1)),
+            ArchiveRef(f"auto_conf-{T_NEWER:%Y-%m-%dT%H:%M:%S}", "cN", T_NEWER),
+            ArchiveRef(
+                f"auto_data-{T_NEWER + timedelta(minutes=1):%Y-%m-%dT%H:%M:%S}",
+                "dN",
+                T_NEWER + timedelta(minutes=1),
+            ),
         ]
 
     client.list_archives = newer
