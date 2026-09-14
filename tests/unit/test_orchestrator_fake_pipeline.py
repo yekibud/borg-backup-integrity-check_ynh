@@ -440,13 +440,13 @@ def test_full_pipeline_sampled_run_passes_and_cleans_up(pipeline, capsys):
     assert any("Weekend plans" in s.evidence.title for s in mail.samples)
     assert "secret body" not in text and "pp-secret" not in text
 
-    # Report structure: summary + manifest comparison first, evidence later, attention list last.
+    # Report structure: what needs attention first, then the summary, then the evidence.
     assert (
-        text.index("BACKUP MANIFEST COMPARISON")
+        text.index("NEEDS ATTENTION")
+        < text.index("BACKUP MANIFEST COMPARISON")
         < text.index("APPLICATION: filebox")
-        < text.index("ATTENTION REQUIRED")
     )
-    assert "Recent backed-up objects:" in text and "Weekend plans" in text and "IMG_" in text
+    assert "Recent backed-up objects" in text and "Weekend plans" in text and "IMG_" in text
     assert (
         "increased" in text or "+11" in text
     )  # previous generation was 10% smaller (stats-only baseline)
@@ -527,7 +527,9 @@ def test_pipeline_core_restore_failure_is_reported_and_still_cleans_up(pipeline)
     assert filebox.status == "FAIL" and report.overall == "FAIL" and report.core_failures == 1
     assert filebox.samples == [] and "samples skipped" in " ".join(filebox.notes)
     text = (cfg.paths.runs_dir / run.run_id / "report.txt").read_text()
-    assert "ERROR: filebox: Core/configuration: app restore script failed" in text
+    assert "WHAT FAILED" in text
+    assert "filebox" in text and "core restore" in text and "app restore script failed" in text
+    assert text.index("WHAT FAILED") < text.index("RUN SUMMARY")
     assert pipeline["provider"].live == {}
     assert RunStateStore(cfg.paths.runs_dir).load(run.run_id).status == "failed"
 
@@ -566,7 +568,8 @@ def test_pipeline_cleanup_failure_is_prominent(pipeline, monkeypatch):
     report = run.run()
     assert report.overall == "FAIL" and "API down" in report.cleanup_error
     text = (cfg.paths.runs_dir / run.run_id / "report.txt").read_text()
-    assert "CLEANUP FAILED" in text and "OVERALL: FAIL" in text
+    assert "OVERALL: FAIL" in text
+    assert "temporary resources may still exist" in text and "API down" in text
     state = RunStateStore(cfg.paths.runs_dir).load(run.run_id)
     assert state.cleanup_status == "failed" and state.server_id == "srv-1"
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from ..borg.listing import DirectoryAggregates
@@ -139,15 +140,33 @@ class CoreRestoreEngine:
             report.add_check(
                 what,
                 FAIL,
-                (outcome.error or "restore failed")[:300],
+                _failure_summary(outcome.error),
                 VerificationLevel.ARCHIVE_METADATA_FOUND,
             )
         if outcome.log_path:
-            report.notes.append(f"YunoHost operation log on restore host: {outcome.log_path}")
+            report.operation_log = outcome.log_path
 
     @staticmethod
     def skipped(report: ComponentReport, reason: str) -> None:
         report.add_check("Core/configuration", SKIPPED, reason)
+
+
+def _failure_summary(error: str | None, limit: int = 140) -> str:
+    """One readable line out of a YunoHost restore failure.
+
+    The raw material is a log tail: its first line is usually cut mid-word and most lines are
+    warnings that say nothing about the cause, so prefer the last explicit ERROR line.
+    """
+    lines = [line.strip() for line in (error or "").splitlines() if line.strip()]
+    if len(lines) > 1:
+        lines = lines[1:]  # the tail starts mid-line
+    errors = [line for line in lines if line.startswith("ERROR")]
+    speaking = errors or [line for line in lines if not line.startswith("WARNING")] or lines
+    best = re.sub(r"^(ERROR|WARNING|INFO)\s+", "", speaking[-1])
+    best = " ".join(best.split())
+    if not best:
+        return "restore failed"
+    return best if len(best) <= limit else best[: limit - 3] + "..."
 
 
 def _outcome(result: dict) -> CoreRestoreOutcome:
@@ -155,9 +174,7 @@ def _outcome(result: dict) -> CoreRestoreOutcome:
     error = None
     if not ok:
         error = (
-            result.get("error")
-            or (result.get("log_tail") or "")[-600:]
-            or f"stage {result.get('stage')} failed"
+            result.get("error") or result.get("log_tail") or f"stage {result.get('stage')} failed"
         )
     return CoreRestoreOutcome(
         ok=ok, results=result.get("results") or {}, log_path=result.get("log"), error=error

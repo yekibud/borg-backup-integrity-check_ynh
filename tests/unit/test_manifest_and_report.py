@@ -242,17 +242,18 @@ def test_report_rendering_puts_summary_and_comparison_first():
     )
     text = render_report(report)
     lines = text.splitlines()
-    assert lines[0] == "YunoHost Borg Backup Integrity Check"
+    assert lines[1].startswith("# YUNOHOST BORG BACKUP INTEGRITY CHECK")
     assert "OVERALL: PASS WITH" in text
     assert text.index("BACKUP MANIFEST COMPARISON") < text.index("FILE-LIKE APPLICATION: files")
-    assert "Photos" in text and "+56.4%  WARNING" in text
+    assert "Photos" in text and "+56.4%" in text and "+55.1%  WARNING" in text
     assert 'Re: Tuesday meeting"  from Alice' in text and "[verified]" in text
     assert "Documents/contract.pdf" in text and "4032x3024" in text and "[app]" in text
     assert "!! short read" in text
     assert "Recent objects:" in text and "2/3 readable" in text
-    assert "ATTENTION REQUIRED" in text and "1 of 3 sampled objects unreadable" in text
     assert "203.0.113.10 example.org" in text
-    assert text.index("ATTENTION REQUIRED") > text.index("MAIL-LIKE COMPONENT")
+    # What needs attention comes before the evidence, not after it.
+    assert "NEEDS ATTENTION" in text and "1 of 3 sampled objects unreadable" in text
+    assert text.index("NEEDS ATTENTION") < text.index("MAIL-LIKE COMPONENT")
 
 
 def test_overall_status_rules():

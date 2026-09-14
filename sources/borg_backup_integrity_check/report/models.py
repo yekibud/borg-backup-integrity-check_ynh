@@ -90,6 +90,7 @@ class ComponentReport:
     candidates: int = 0
     notes: list[str] = field(default_factory=list)
     large_roots: list[str] = field(default_factory=list)
+    operation_log: str | None = None  # YunoHost operation log of the restore, on the restore host
 
     @property
     def samples_readable(self) -> int:
@@ -148,6 +149,7 @@ class ComponentReport:
             "candidates": self.candidates,
             "notes": list(self.notes),
             "large_roots": list(self.large_roots),
+            "operation_log": self.operation_log,
             "max_level": int(self.max_level),
         }
 

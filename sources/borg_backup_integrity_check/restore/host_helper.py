@@ -539,7 +539,7 @@ def cmd_restore_core(ns: argparse.Namespace) -> dict:
     if ns.ssh_port or spec.get("ssh_port"):
         reopen_port(int(ns.ssh_port or spec.get("ssh_port")))
     result.update({"ok": rc == 0, "rc": rc, "results": data, "log_tail": err[-3000:]})
-    result["log"] = _last_operation_log()
+    result["log"] = _restore_operation_log(targets, err)
     for extra in (tar_path, ARCHIVES_DIR / f"{name}.info.json"):
         extra.unlink(missing_ok=True)
     return result
@@ -559,16 +559,36 @@ def _apply_owner(path: Path, entry: dict) -> None:
         sh(["chown", f"{user or ''}:{group or ''}", str(path)], timeout=60)
 
 
-def _last_operation_log(match: str = "backup_restore") -> str | None:
-    rc, data, _ = yunohost_json(["log", "list", "--limit", "8"], timeout=120)
+def _restore_operation_log(targets: dict, stderr: str) -> str | None:
+    """Operation log of the restore that just ran, identified by name, never by recency.
+
+    The newest entry of `yunohost log list` is not reliably this restore (it lags behind by one
+    operation), which used to attribute every component the previous component's log.
+    """
+    printed = re.search(r"yunohost log (?:share|display) (\S+)", stderr)
+    apps = [str(a) for a in (targets.get("apps") or [])]
+    wanted = [f"backup_restore_app-{apps[0]}"] if apps else ["backup_restore_system"]
+    if printed:
+        wanted.insert(0, printed.group(1))
+    for name in wanted:
+        found = _operation_log(name)
+        if found:
+            return found
+    return None
+
+
+def _operation_log(match: str) -> str | None:
+    rc, data, _ = yunohost_json(
+        ["log", "list", "--limit", "25", "--with-suboperations"], timeout=120
+    )
     try:
         operations = data["operation"] if isinstance(data, dict) else []
         for op in operations:
             if match in str(op.get("name", "")):
                 return op.get("path") or op.get("name")
-        return operations[0].get("path") if operations else None
     except (KeyError, IndexError, TypeError, AttributeError):
         return None
+    return None
 
 
 def cmd_extract_payload(ns: argparse.Namespace) -> dict:

@@ -33,6 +33,7 @@ ynh_restore "/etc/logrotate.d/$app"
 systemctl daemon-reload
 bbic_register_service
 bbic_apply_schedule
+bbic_install_logo
 
 #=================================================
 # END OF SCRIPT

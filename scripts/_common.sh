@@ -7,6 +7,9 @@
 bbic_cli="/usr/local/bin/borg-backup-integrity-check"
 bbic_etc_dir="/etc/$app"
 bbic_log_dir="/var/log/$app"
+# The web admin falls back to /usr/share/yunohost/applogos/<app>.png when an app is not in the
+# catalogue; without it the app list shows a placeholder.
+bbic_logo="/usr/share/yunohost/applogos/$app.png"
 
 # Settings that are only exposed in the config panel (not asked at install) and their defaults.
 # Keep in sync with DEFAULTS in sources/borg_backup_integrity_check/config.py.
@@ -111,6 +114,18 @@ bbic_deploy_sources() {
     chmod -R go-w "$install_dir"
     ynh_config_add --template="bin-wrapper" --destination="$bbic_cli"
     chmod 0755 "$bbic_cli"
+}
+
+bbic_install_logo() {
+    local source="$YNH_APP_BASEDIR/conf/logo.png"
+    [ -f "$source" ] || return 0
+    mkdir -p "$(dirname "$bbic_logo")"
+    cp "$source" "$bbic_logo"
+    chmod 0644 "$bbic_logo"
+}
+
+bbic_remove_logo() {
+    ynh_safe_rm "$bbic_logo"
 }
 
 bbic_setup_directories() {

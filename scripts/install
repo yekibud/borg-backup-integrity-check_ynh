@@ -49,6 +49,7 @@ ynh_config_add_systemd --service="$app-janitor" --template="janitor.service"
 bbic_register_service
 bbic_apply_schedule
 ynh_config_add_logrotate "$bbic_log_dir"
+bbic_install_logo
 
 #=================================================
 # VALIDATE CONFIGURATION (warnings only: the network may be unavailable in CI)

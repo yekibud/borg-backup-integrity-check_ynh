@@ -32,6 +32,7 @@ systemctl daemon-reload
 ynh_safe_rm "$bbic_cli"
 ynh_safe_rm "$bbic_etc_dir"
 ynh_safe_rm "$bbic_log_dir"
+bbic_remove_logo
 
 #=================================================
 # END OF SCRIPT
