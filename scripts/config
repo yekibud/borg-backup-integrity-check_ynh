@@ -121,12 +121,10 @@ get__last_run() {
         echo 'ask: "*No integrity check has run yet.*"'
         return
     fi
-    local report="" path
-    path=$("$bbic_cli" status --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin).get("latest_run") or {}; print(d.get("report_path") or "")' 2>/dev/null)
-    if [ -n "$path" ] && [ -f "$path" ]; then
-        report=$(head -n 40 "$path" | sed 's/^/    /')
-    fi
-    printf 'ask: |-\n%s\n\n%s\n' "$status" "$report"
+    # The same head the emailed report starts with: verdict, what failed, run summary.
+    local report
+    report=$("$bbic_cli" report --summary 2>/dev/null | sed 's/^/    /')
+    printf 'ask: |-\n%s\n\n%s\n\n    Full report (same text as the e-mail): borg-backup-integrity-check report\n' "$status" "$report"
 }
 
 #=================================================

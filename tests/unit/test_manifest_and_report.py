@@ -9,6 +9,7 @@ from borg_backup_integrity_check.manifest.models import (
     ComponentMetrics,
 )
 from borg_backup_integrity_check.report.models import (
+    FAIL,
     PASS,
     ComponentReport,
     RetainedHost,
@@ -16,7 +17,7 @@ from borg_backup_integrity_check.report.models import (
     SampleResult,
     VerificationLevel,
 )
-from borg_backup_integrity_check.report.text import render_report
+from borg_backup_integrity_check.report.text import render_report, summary_of
 
 T0 = datetime(2026, 9, 10, 2, 1)
 
@@ -254,6 +255,30 @@ def test_report_rendering_puts_summary_and_comparison_first():
     # What needs attention comes before the evidence, not after it.
     assert "NEEDS ATTENTION" in text and "1 of 3 sampled objects unreadable" in text
     assert text.index("NEEDS ATTENTION") < text.index("MAIL-LIKE COMPONENT")
+
+
+def test_summary_is_the_head_of_the_report():
+    report = RunReport(
+        run_id="20260910-090000-ab12",
+        mode="sampled",
+        started_at=T0,
+        provider="hetzner",
+        backup_time=T0,
+    )
+    broken = ComponentReport(id="immich", label="immich", kind="app")
+    broken.add_check("Core/configuration", FAIL, "Could not restore immich")
+    broken.finalize()
+    report.components.append(broken)
+    text = render_report(report)
+    summary = summary_of(text)
+
+    assert "OVERALL: FAIL" in summary
+    assert "WHAT FAILED" in summary and "Could not restore immich" in summary
+    assert "RUN SUMMARY" in summary
+    assert "BACKUP MANIFEST COMPARISON" not in summary
+    assert summary in text.replace("\n\n#### BACKUP", "\n#### BACKUP") or text.startswith(
+        summary.rstrip()
+    )
 
 
 def test_overall_status_rules():

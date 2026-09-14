@@ -42,7 +42,14 @@ def _one_line(text: str, room: int) -> str:
 
 
 def _wrapped(text: str, indent: int) -> list[str]:
-    return textwrap.wrap(text, WIDTH, subsequent_indent=" " * indent) or [text]
+    # Never split a long word: URLs and paths in a report are there to be copied.
+    return textwrap.wrap(
+        text,
+        WIDTH,
+        subsequent_indent=" " * indent,
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or [text]
 
 
 def render_report(report: RunReport) -> str:
@@ -80,6 +87,18 @@ def render_report(report: RunReport) -> str:
         _section(add, "RETAINED RESTORE SERVER (manual inspection)")
         _retained_block(report, add)
     return "\n".join(lines).rstrip() + "\n"
+
+
+def summary_of(text: str) -> str:
+    """The head of a rendered report: verdict, what failed, run summary - no evidence.
+
+    Used by the config panel, so that what the web admin shows is literally the first screen
+    of the emailed report.
+    """
+    lines = text.splitlines()
+    banners = [i for i, line in enumerate(lines) if line.startswith("#### ")]
+    end = banners[1] if len(banners) > 1 else min(len(lines), 40)
+    return "\n".join(lines[:end]).rstrip() + "\n"
 
 
 def _section(add, title: str) -> None:

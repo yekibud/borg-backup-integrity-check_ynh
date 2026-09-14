@@ -144,6 +144,7 @@ def cmd_history(ns: argparse.Namespace) -> int:
 
 
 def cmd_report(ns: argparse.Namespace) -> int:
+    from .report.text import summary_of
     from .run.state import RunStateStore
 
     _require_root()
@@ -153,7 +154,8 @@ def cmd_report(ns: argparse.Namespace) -> int:
     if state is None or not state.report_path or not Path(state.report_path).is_file():
         print("no report available", file=sys.stderr)
         return 1
-    print(Path(state.report_path).read_text(encoding="utf-8"))
+    text = Path(state.report_path).read_text(encoding="utf-8")
+    print(summary_of(text) if ns.summary else text)
     return 0
 
 
@@ -434,6 +436,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("report", help="print the report of the latest (or given) run")
     p.add_argument("run_id", nargs="?")
+    p.add_argument(
+        "--summary", action="store_true", help="only the verdict, what failed and the run summary"
+    )
     p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("destroy", help="destroy the retained/leftover restore server of a run")

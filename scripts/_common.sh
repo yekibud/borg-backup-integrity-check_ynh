@@ -186,11 +186,19 @@ bbic_apply_schedule() {
 }
 
 bbic_register_service() {
-    yunohost service add "$app" --description="Borg backup integrity checks (timer driven)" \
+    # Health here means "the schedule is armed", not "a daemon is up": the service is a oneshot
+    # started by its timer, and it exits non-zero when a *backup* turns out to be unrestorable.
+    # Testing the unit state instead would make every failed check look like a broken service in
+    # the diagnosis, although the finding is already reported by e-mail and in the config panel.
+    yunohost service add "$app" \
+        --description="Borg backup integrity checks (timer driven, not a daemon; findings are emailed)" \
         --log="$bbic_log_dir/$app.log" \
-        --test_status="systemctl show $app.service -p ActiveState --value | grep -v failed"
+        --test_status="systemctl is-active --quiet $app.timer || systemctl is-active --quiet $app-janitor.timer"
     # The service is started by its timer (or manually), never at boot.
     systemctl disable "$app.service" --quiet 2>/dev/null || true
+    # A check that reported an unrestorable backup leaves the oneshot unit in "failed"; clear it
+    # so the web admin does not keep showing a broken service for a finding already reported.
+    systemctl reset-failed "$app.service" 2>/dev/null || true
 }
 
 bbic_unregister_service() {
