@@ -127,3 +127,24 @@ def test_core_and_payload_patterns():
     assert host_helper.payload_patterns(
         {"archive_path": "data/mail", "live_path": "/var/mail", "full": True}
     ) == ["+ pp:data/mail", "- sh:**"]
+
+
+def test_operation_log_text_prefers_the_log_beside_the_metadata(tmp_path):
+    (tmp_path / "op.yml").write_text("metadata: only\n")
+    (tmp_path / "op.log").write_text("ERROR the app restore script exited 1\n")
+    text = host_helper._operation_log_text(str(tmp_path / "op.yml"))
+    assert text == "ERROR the app restore script exited 1\n"
+
+
+def test_operation_log_text_falls_back_to_the_metadata_file(tmp_path):
+    (tmp_path / "op.yml").write_text("metadata: only\n")
+    assert host_helper._operation_log_text(str(tmp_path / "op.yml")) == "metadata: only\n"
+    assert host_helper._operation_log_text(None) is None
+    assert host_helper._operation_log_text(str(tmp_path / "gone.yml")) is None
+
+
+def test_operation_log_text_keeps_the_end_of_a_long_log(tmp_path):
+    (tmp_path / "op.log").write_text("x" * 500 + "the actual error\n")
+    text = host_helper._operation_log_text(str(tmp_path / "op.log"), limit=100)
+    assert text.startswith("[...truncated...]\n") and text.endswith("the actual error\n")
+    assert len(text) < 200

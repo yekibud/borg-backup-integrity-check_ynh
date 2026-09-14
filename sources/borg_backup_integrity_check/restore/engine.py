@@ -21,6 +21,7 @@ class CoreRestoreOutcome:
     results: dict = field(default_factory=dict)
     log_path: str | None = None
     error: str | None = None
+    log_text: str | None = None  # the restore host's operation log, fetched before it is destroyed
 
 
 class CoreRestoreEngine:
@@ -59,6 +60,7 @@ class CoreRestoreEngine:
                     results={"result": part_result},
                     log_path=outcome.log_path,
                     error=outcome.error,
+                    log_text=outcome.log_text,
                 )
         return outcomes
 
@@ -177,5 +179,9 @@ def _outcome(result: dict) -> CoreRestoreOutcome:
             result.get("error") or result.get("log_tail") or f"stage {result.get('stage')} failed"
         )
     return CoreRestoreOutcome(
-        ok=ok, results=result.get("results") or {}, log_path=result.get("log"), error=error
+        ok=ok,
+        results=result.get("results") or {},
+        log_path=result.get("log"),
+        error=error,
+        log_text=result.get("log_text"),
     )

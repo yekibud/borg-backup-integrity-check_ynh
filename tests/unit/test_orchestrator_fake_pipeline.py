@@ -178,6 +178,8 @@ class FakeAgent:
                     "ok": False,
                     "stage": "restore",
                     "error": "app restore script failed: db import error",
+                    "log": "/var/log/yunohost/operations/20260914-201242-backup_restore_app.yml",
+                    "log_text": "INFO starting\nERROR mysql: Access denied for user\n",
                 }
             return {
                 "ok": True,
@@ -468,6 +470,9 @@ def test_full_pipeline_sampled_run_passes_and_cleans_up(pipeline, capsys):
     )
     assert report.borg_check.status == "PASS" and report.deep_check.status == "PASS"
 
+    # Nothing failed, so no restore logs were kept.
+    assert not (cfg.paths.runs_dir / run.run_id / "restore-logs").exists()
+
     # Manifest history persisted; cleanup verified through the provider; state finished.
     history = list((cfg.paths.history_dir).glob("*.json"))
     assert len(history) == 1
@@ -592,6 +597,15 @@ def test_pipeline_core_restore_failure_is_reported_and_still_cleans_up(pipeline)
     assert text.index("WHAT FAILED") < text.index("RUN SUMMARY")
     assert pipeline["provider"].live == {}
     assert RunStateStore(cfg.paths.runs_dir).load(run.run_id).status == "failed"
+
+    # The restore host is gone; its account of the failure has to outlive it.
+    saved = cfg.paths.runs_dir / run.run_id / "restore-logs" / "filebox.log"
+    assert filebox.saved_log == str(saved)
+    kept = saved.read_text()
+    assert "mysql: Access denied for user" in kept  # the operation log itself
+    assert "app restore script failed" in kept  # and the restore output it was summarised from
+    assert "20260914-201242-backup_restore_app.yml" in kept  # where it came from
+    assert str(saved) in text and "WHY A RESTORE FAILED" in text
 
 
 def test_pipeline_retain_keeps_host_and_reports_access(pipeline):

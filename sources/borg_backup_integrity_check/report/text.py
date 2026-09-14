@@ -82,8 +82,11 @@ def render_report(report: RunReport) -> str:
             _component_block(component, add)
             add("")
         lines.pop()
+    if any(c.saved_log for c in report.components):
+        _section(add, "WHY A RESTORE FAILED (kept from the restore server)")
+        _saved_logs_block(report, add)
     if any(c.operation_log for c in report.components):
-        _section(add, "RESTORE OPERATION LOGS (on the restore server)")
+        _section(add, "RESTORE OPERATION LOGS (on the restore server, now destroyed)")
         _operation_logs_block(report, add)
     if report.retained_host:
         _section(add, "RETAINED RESTORE SERVER (manual inspection)")
@@ -314,6 +317,14 @@ def _sample_line(sample) -> str:
             else "    [verified]"
         )
     return text
+
+
+def _saved_logs_block(report: RunReport, add) -> None:
+    """Restore failures whose log was copied back here before the restore host was destroyed."""
+    for component in report.components:
+        if component.saved_log:
+            add(_one_line(component.label, WIDTH))
+            add(f"    {component.saved_log}")
 
 
 def _operation_logs_block(report: RunReport, add) -> None:

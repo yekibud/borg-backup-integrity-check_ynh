@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import random
+import re
 import signal
 import subprocess
 from dataclasses import dataclass
@@ -48,7 +49,7 @@ from ..report.text import render_report
 from ..restore.agent import HostAgent
 from ..restore.bootstrap import RestoreHostBootstrap
 from ..restore.cloud_init import build_user_data
-from ..restore.engine import CoreRestoreEngine
+from ..restore.engine import CoreRestoreEngine, CoreRestoreOutcome
 from ..restore.health import ApplicationHealthChecker
 from ..restore.payload import PayloadRetriever
 from ..restore.planner import RestorePlan, build_plan
@@ -576,6 +577,7 @@ class IntegrityRun:
                     data_kind="config",
                 )
                 engine.apply_outcome(report, outcomes[cp.component.id], "Restore")
+                self._save_restore_log(report, outcomes[cp.component.id])
                 report.finalize()
                 self.report.components.append(report)
             # The system restore ran YunoHost's postinstall; pick up domains it created.
@@ -611,6 +613,7 @@ class IntegrityRun:
             report.notes.extend(comp.notes)
             outcome = engine.restore_app(cp)
             engine.apply_outcome(report, outcome)
+            self._save_restore_log(report, outcome)
             self.report.components.append(report)
         for cp in self.plan.system_data:
             comp = cp.component
@@ -622,6 +625,28 @@ class IntegrityRun:
                 large_roots=[r.archive_path for r in comp.large_roots],
             )
             self.report.components.append(report)
+
+    def _save_restore_log(self, report: ComponentReport, outcome: CoreRestoreOutcome) -> None:
+        """Keep a failed restore's own words: the host that holds them is destroyed minutes later."""
+        if outcome.ok or not (outcome.error or outcome.log_text):
+            return
+        directory = self.state_store.run_dir(self.run_id) / "restore-logs"
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = directory / (re.sub(r"[^A-Za-z0-9_.-]", "_", report.id) + ".log")
+        parts = [f"# {report.id} ({report.label}) - restore failed on {self.state.host_address}"]
+        if outcome.log_path:
+            parts.append(f"# YunoHost operation log on the restore host: {outcome.log_path}")
+        if outcome.error:
+            parts.append("\n## yunohost backup restore output (tail)\n" + outcome.error)
+        if outcome.log_text:
+            parts.append("\n## operation log\n" + outcome.log_text)
+        try:
+            path.write_text("\n".join(parts) + "\n", encoding="utf-8")
+        except OSError as exc:  # a full disk must not cost us the rest of the run
+            log.warning("could not save the restore log of %s: %s", report.id, exc)
+            return
+        path.chmod(0o600)
+        report.saved_log = str(path)
 
     def _domains(self) -> list[str]:
         domains = set()

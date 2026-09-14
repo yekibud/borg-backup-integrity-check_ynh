@@ -91,6 +91,7 @@ class ComponentReport:
     notes: list[str] = field(default_factory=list)
     large_roots: list[str] = field(default_factory=list)
     operation_log: str | None = None  # YunoHost operation log of the restore, on the restore host
+    saved_log: str | None = None  # local copy of it, kept because the restore host is disposable
 
     @property
     def samples_readable(self) -> int:
@@ -150,6 +151,7 @@ class ComponentReport:
             "notes": list(self.notes),
             "large_roots": list(self.large_roots),
             "operation_log": self.operation_log,
+            "saved_log": self.saved_log,
             "max_level": int(self.max_level),
         }
 

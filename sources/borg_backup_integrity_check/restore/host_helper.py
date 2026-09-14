@@ -540,6 +540,14 @@ def cmd_restore_core(ns: argparse.Namespace) -> dict:
         reopen_port(int(ns.ssh_port or spec.get("ssh_port")))
     result.update({"ok": rc == 0, "rc": rc, "results": data, "log_tail": err[-3000:]})
     result["log"] = _restore_operation_log(targets, err)
+    if rc != 0 or any(
+        outcome not in ("Success", "Warning")
+        for section in (data or {}).values()
+        if isinstance(section, dict)
+        for outcome in section.values()
+    ):
+        # The restore host is destroyed minutes from now; the only chance to keep the reason.
+        result["log_text"] = _operation_log_text(result["log"])
     for extra in (tar_path, ARCHIVES_DIR / f"{name}.info.json"):
         extra.unlink(missing_ok=True)
     return result
@@ -574,6 +582,21 @@ def _restore_operation_log(targets: dict, stderr: str) -> str | None:
         found = _operation_log(name)
         if found:
             return found
+    return None
+
+
+def _operation_log_text(path: str | None, limit: int = 120_000) -> str | None:
+    """Tail of a YunoHost operation log: the ``.log`` beside the metadata ``.yml``, else the ``.yml``."""
+    if not path:
+        return None
+    candidates = [Path(path)]
+    if path.endswith(".yml"):
+        candidates.insert(0, Path(path[: -len(".yml")] + ".log"))
+    for candidate in candidates:
+        if candidate.is_file():
+            with contextlib.suppress(OSError):
+                text = candidate.read_text(encoding="utf-8", errors="replace")
+                return text if len(text) <= limit else "[...truncated...]\n" + text[-limit:]
     return None
 
 
