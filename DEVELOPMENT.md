@@ -89,6 +89,12 @@ including a 256 GB / 276k-file Nextcloud, Immich, Synapse, Forgejo, ...). Findin
 
 * **Upstream bug (YunoHost 12.1.41.2):** a `password`-type install question hidden by a `visible` condition makes `app_install` crash (`TypeError ... NoneType` in `Popen` env: the core re-injects every password option into the script env without checking for `None`). Workaround in this app: a single always-visible `provider_token` question (stored under the selected provider's name by the install script) and an always-visible optional `borg_passphrase`. Worth reporting upstream (`src/app.py`, "Reinject user-provider passwords").
 
+* **Upstream bug (web admin):** a `number`/`range` option without an explicit `max` (or `min`) is unusable in
+  the web admin: the core sends the bound as `null`, `configPanels.ts` only skips the rule when it is `undefined`,
+  so `maxValue(null)` rejects every value with "Value must be a number equal or lesser than ." (empty bound).
+  Always declare `min` and `max` on number options - fixed here for `install.sample_size`; the config panel
+  already declared bounds everywhere.
+
 * Verified on a real YunoHost 12.1.41.2: install form, secret storage, config panel read/apply, dynamic select getters, actions, timer regeneration, upgrade, backup/restore, failed-install cleanup. Core limitation found: `yunohost app config set app panel.section.option --value` cannot evaluate a `visible` condition referencing another option (KeyError); dependent options must be submitted at section level with `--args`, as the webadmin does.
 * Not yet exercised against a real YunoHost: the config panel getters (`choices:` YAML for dynamic selects), the exact env value the core sends for untouched password fields, and `type = "time"` handling in install forms.
 * `host_helper.cmd_install_borg_app` installs borg_ynh from the catalog (`yunohost app install borg`); the archive name/version of borg on the restore host is not pinned to the production one.

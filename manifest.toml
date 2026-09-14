@@ -157,6 +157,10 @@ ram.runtime = "300M"
     ask.fr = "Nombre d'objets récents à récupérer par application/composant"
     type = "number"
     default = 20
+    # min/max are mandatory in practice: the web admin rejects every value of a
+    # number option whose bounds are absent (they reach it as null, not undefined).
+    min = 1
+    max = 500
 
     [install.schedule_enabled]
     ask.en = "Run integrity checks automatically?"
