@@ -73,8 +73,10 @@ def render_report(report: RunReport) -> str:
                 add(f"{check.name + ':':<26}{check.status}  {check.detail}".rstrip())
     if report.components:
         _section(add, "COMPONENTS")
-        add("Service, HTTP and login checks run on the restore server: its /etc/hosts maps")
-        add("the production host names to itself, so the live server is never contacted.")
+        add("Service, HTTP and login checks run inside the isolated restore server: its")
+        add("/etc/hosts maps every restored domain to 127.0.0.1 and curl resolves ports 80 and")
+        add("443 there, so a production host name in a URL below was answered by the restore")
+        add("server - the live server is never contacted.")
         add("")
         for component in report.components:
             _component_block(component, add)

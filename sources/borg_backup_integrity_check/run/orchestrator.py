@@ -559,6 +559,10 @@ class IntegrityRun:
         domains = self._domains()
         main_domain = self._main_domain()
         if self.plan.system_conf:
+            # Before the restore, not only after it: the archive brings back the DynDNS keys and
+            # their cron, which would otherwise be free to re-point the production domain at this
+            # server during the minutes the restore takes.
+            engine.quarantine(sorted(set(domains + ([main_domain] if main_domain else []))))
             outcomes = engine.restore_system(self.plan)
             for cp in self.plan.system_conf:
                 report = ComponentReport(

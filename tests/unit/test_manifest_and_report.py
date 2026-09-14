@@ -306,7 +306,8 @@ def test_http_failure_is_warning_in_sampled_mode_but_fail_in_full():
     sampled = ComponentReport(id="nextcloud", label="nextcloud", kind="app")
     ApplicationHealthChecker._apply_http(result, sampled, None, sampled=True)
     http = sampled.check("HTTP health")
-    assert http.status == "WARN" and "expected when bulk data is absent" in http.detail
+    assert http.status == "WARN" and "expected in sampled mode" in http.detail
+    assert "-> restore host 127.0.0.1:443" in http.detail  # never the production server
     full = ComponentReport(id="nextcloud", label="nextcloud", kind="app")
     ApplicationHealthChecker._apply_http(result, full, None, sampled=False)
     assert full.check("HTTP health").status == "FAIL"

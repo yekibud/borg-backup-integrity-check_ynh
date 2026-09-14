@@ -452,6 +452,16 @@ def test_full_pipeline_sampled_run_passes_and_cleans_up(pipeline, capsys):
     )  # previous generation was 10% smaller (stats-only baseline)
     assert "VERIFIED THROUGH APPLICATION" in text and "EXTRACTED AND READABLE" in text
 
+    # The restore host is isolated before the system restore can bring back DynDNS keys, and
+    # again after it, so the production domain can never be re-pointed at the test server.
+    commands = [name for name, _ in pipeline["agents"][0].calls]
+    assert commands.count("quarantine") == 2
+    first_restore = commands.index("restore-core")
+    assert commands.index("quarantine") < first_restore
+    assert any(name == "quarantine" for name in commands[first_restore:]), (
+        "no quarantine after the system restore"
+    )
+
     # Borg-level checks ran on the production side, without the restore host.
     assert "check" in pipeline["client"].calls and any(
         c.startswith("dryrun:") for c in pipeline["client"].calls

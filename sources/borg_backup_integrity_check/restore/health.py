@@ -14,6 +14,11 @@ HTTP_OK = set(range(200, 400))
 HTTP_AUTH = {401, 403}
 
 
+def _via(url: str) -> str:
+    """Where the request actually went: curl --resolve sends it to 127.0.0.1 on the restore host."""
+    return f"-> restore host 127.0.0.1:{443 if url.startswith('https://') else 80}"
+
+
 class ApplicationHealthChecker:
     def __init__(self, agent: HostAgent) -> None:
         self.agent = agent
@@ -96,27 +101,33 @@ class ApplicationHealthChecker:
         unhealthy_status = WARN if sampled else FAIL
         if code in ok_codes:
             report.add_check(
-                "HTTP health", PASS, f"{code} {http['url']}", VerificationLevel.HTTP_RESPONDING
+                "HTTP health",
+                PASS,
+                f"{code} {http['url']} {_via(http['url'])}",
+                VerificationLevel.HTTP_RESPONDING,
             )
         elif code in HTTP_AUTH:
             report.add_check(
                 "HTTP health",
                 PASS,
-                f"{code} (authentication required) {http['url']}",
+                f"{code} (authentication required) {http['url']} {_via(http['url'])}",
                 VerificationLevel.HTTP_RESPONDING,
             )
         elif code == 404:
             report.add_check(
-                "HTTP health", WARN, f"404 {http['url']}", VerificationLevel.HTTP_RESPONDING
+                "HTTP health",
+                WARN,
+                f"404 {http['url']} {_via(http['url'])}",
+                VerificationLevel.HTTP_RESPONDING,
             )
         else:
             hint = ""
             if code in (502, 503):
-                hint = " (app not fully serving; in sampled mode this is expected when bulk data is absent)"
+                hint = " (expected in sampled mode: bulk data is deliberately absent)"
             report.add_check(
                 "HTTP health",
                 unhealthy_status,
-                f"HTTP {code or 'unreachable'} {http['url']}{hint}",
+                f"HTTP {code or 'unreachable'} {http['url']} {_via(http['url'])}{hint}",
                 VerificationLevel.HTTP_RESPONDING if code else VerificationLevel.NOT_CHECKED,
             )
         sso = result.get("sso")
@@ -124,7 +135,7 @@ class ApplicationHealthChecker:
             report.add_check(
                 "Login endpoint",
                 PASS if sso.get("code") in HTTP_OK else WARN,
-                f"{sso.get('code')} {sso.get('url')}",
+                f"{sso.get('code')} {sso.get('url')} {_via(str(sso.get('url')))}",
                 VerificationLevel.HTTP_RESPONDING
                 if sso.get("code") in HTTP_OK
                 else VerificationLevel.NOT_CHECKED,
