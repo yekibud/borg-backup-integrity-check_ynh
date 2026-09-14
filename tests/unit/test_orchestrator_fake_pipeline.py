@@ -497,6 +497,56 @@ def test_full_pipeline_sampled_run_passes_and_cleans_up(pipeline, capsys):
     assert quarantine is None  # args-only call, spec None
 
 
+def test_fatal_error_keeps_the_host_and_records_where_the_run_died(pipeline, monkeypatch):
+    """A dropped SSH connection is exactly when the restore host is worth keeping for a look."""
+    from borg_backup_integrity_check.errors import RestoreHostError
+
+    cfg = pipeline["config"]
+    original = FakeAgent.call
+
+    def call(self, command, spec=None, args=None, timeout=0):
+        if command == "domains":
+            raise RestoreHostError(
+                "ssh connection to 203.0.113.7:22022 failed: "
+                "kex_exchange_identification: read: Connection reset by peer"
+            )
+        return original(self, command, spec=spec, args=args, timeout=timeout)
+
+    monkeypatch.setattr(FakeAgent, "call", call)
+    run = orch.IntegrityRun(cfg, orch.RunOptions(mode="sampled", keep_host_on_failure=True))
+    report = run.run()
+
+    assert report.overall == "FAIL"
+    assert "kex_exchange_identification" in report.fatal_error
+    assert pipeline["provider"].destroyed == [] and "srv-1" in pipeline["provider"].live
+    assert report.retained_host is not None and report.retained_host.ssh_port == 22022
+    assert "retained" in report.cleanup_status
+    state = RunStateStore(cfg.paths.runs_dir).load(run.run_id)
+    assert state.status == "retained" and state.server_id == "srv-1"
+    assert state.error == report.fatal_error
+    assert state.failed_phase == "restoring"  # not "cleaning", which `phase` has moved on to
+
+
+def test_an_interrupted_run_is_still_cleaned_up(pipeline, monkeypatch):
+    cfg = pipeline["config"]
+    run = orch.IntegrityRun(cfg, orch.RunOptions(mode="sampled", keep_host_on_failure=True))
+    original = FakeAgent.call
+
+    def call(self, command, spec=None, args=None, timeout=0):
+        if command == "restore-core" and spec["targets"]["system"]:
+            run._interrupted = True
+        return original(self, command, spec=spec, args=args, timeout=timeout)
+
+    monkeypatch.setattr(FakeAgent, "call", call)
+    report = run.run()
+
+    assert "interrupted" in report.fatal_error
+    assert report.retained_host is None
+    assert pipeline["provider"].destroyed == ["srv-1"]
+    state = RunStateStore(cfg.paths.runs_dir).load(run.run_id)
+    assert state.status == "interrupted" and state.failed_phase == "restoring"
+
+
 def test_pipeline_second_run_compares_with_history_and_flags_missing(pipeline):
     cfg = pipeline["config"]
     first = orch.IntegrityRun(cfg, orch.RunOptions(mode="sampled", inspect_only=True)).run()

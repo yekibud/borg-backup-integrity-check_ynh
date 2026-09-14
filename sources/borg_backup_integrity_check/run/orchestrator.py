@@ -147,6 +147,10 @@ class IntegrityRun:
             self.report.fatal_error = f"unexpected error: {exc.__class__.__name__}: {exc}"
             log.exception("unexpected failure")
         finally:
+            if self.report.fatal_error:
+                # Recorded before the reporting/cleanup stages move ``phase`` on.
+                self.state.error = self.report.fatal_error
+                self.state.failed_phase = self.state.phase
             self._stage_report()
             self._stage_cleanup()
             self._finish()
@@ -714,7 +718,8 @@ class IntegrityRun:
             if report.status == SKIPPED and (report.checks or report.samples):
                 report.finalize()
         retain = self._retention_hours()
-        if retain and self.state and self.state.server_id and self.report.fatal_error is None:
+        # A fatal error is the case the host is most worth keeping for, so it does not disqualify.
+        if retain and self.state and self.state.server_id:
             self.state.retained_until = datetime.now() + timedelta(hours=retain)
             self.report.retained_host = RetainedHost(
                 provider=self.report.provider or "",
@@ -755,6 +760,7 @@ class IntegrityRun:
             and self.report.overall == "FAIL"
             and self.state
             and self.state.server_id
+            and self.state.status != "interrupted"  # Ctrl-C means stop and clean up
             and not self.options.inspect_only
         ):
             return float(self.config.retain_hours)

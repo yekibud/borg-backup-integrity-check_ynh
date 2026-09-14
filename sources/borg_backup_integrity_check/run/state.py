@@ -52,6 +52,7 @@ class RunState:
     report_path: str | None = None
     overall: str | None = None
     error: str | None = None
+    failed_phase: str | None = None  # phase the run died in (``phase`` moves on to cleaning)
     notes: list[str] = field(default_factory=list)
 
     @property

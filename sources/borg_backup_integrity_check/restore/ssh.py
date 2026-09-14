@@ -16,6 +16,31 @@ from ..redaction import redact
 
 log = get_logger("ssh")
 
+# ssh exits 255 both when it never reached the remote command and when an established
+# session broke. Only the first kind is safe to repeat: the command provably never ran.
+CONNECT_PHASE_FAILURES = (
+    "kex_exchange_identification",
+    "banner exchange",
+    "connection refused",
+    "connection reset by peer",
+    "connection timed out",
+    "operation timed out",
+    "no route to host",
+    "network is unreachable",
+    "connection closed by ",  # pre-auth close: "Connection closed by <ip> port <port>"
+    "temporary failure in name resolution",
+)
+# Checked first: an established session that died mid-command leaves the host in an
+# unknown state (a restore may still be running), so the caller has to decide.
+SESSION_DROP_MARKERS = ("client_loop:", "timeout, server not responding", "connection to ")
+
+
+def is_connect_phase_failure(stderr: str) -> bool:
+    text = stderr.lower()
+    if any(marker in text for marker in SESSION_DROP_MARKERS):
+        return False
+    return any(marker in text for marker in CONNECT_PHASE_FAILURES)
+
 
 @dataclass
 class CommandResult:
@@ -37,6 +62,7 @@ class SSHSession:
         known_hosts: Path,
         user: str = "root",
         connect_timeout: int = 20,
+        connect_retries: int = 4,
     ) -> None:
         self.host = host
         self.port = port
@@ -44,6 +70,7 @@ class SSHSession:
         self.known_hosts = Path(known_hosts)
         self.user = user
         self.connect_timeout = connect_timeout
+        self.connect_retries = connect_retries
 
     @property
     def target(self) -> str:
@@ -87,6 +114,7 @@ class SSHSession:
         stdin_data: bytes | None = None,
         check: bool = False,
         env: dict[str, str] | None = None,
+        connect_retries: int | None = None,
     ) -> CommandResult:
         remote = command
         if env:
@@ -94,23 +122,42 @@ class SSHSession:
             remote = f"export {exports}; {command}"
         args = self.base_args() + [self.target, remote]
         log.debug("ssh %s: %s", self.host, redact(command)[:300])
-        try:
-            proc = subprocess.run(
-                args, input=stdin_data, capture_output=True, timeout=timeout, check=False
+        retries = self.connect_retries if connect_retries is None else connect_retries
+        attempt = 0
+        while True:
+            try:
+                proc = subprocess.run(
+                    args, input=stdin_data, capture_output=True, timeout=timeout, check=False
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RestoreHostError(
+                    f"command timed out after {timeout}s on {self.host}: {redact(command)[:120]}"
+                ) from exc
+            result = CommandResult(
+                proc.returncode,
+                proc.stdout.decode("utf-8", "replace"),
+                redact(proc.stderr.decode("utf-8", "replace")),
             )
-        except subprocess.TimeoutExpired as exc:
-            raise RestoreHostError(
-                f"command timed out after {timeout}s on {self.host}: {redact(command)[:120]}"
-            ) from exc
-        result = CommandResult(
-            proc.returncode,
-            proc.stdout.decode("utf-8", "replace"),
-            redact(proc.stderr.decode("utf-8", "replace")),
-        )
-        if result.rc == 255:
-            raise RestoreHostError(
-                f"ssh connection to {self.host}:{self.port} failed: {result.stderr.strip()[-300:]}"
+            if result.rc != 255:
+                break
+            # Restoring a YunoHost bounces sshd, the firewall and the network; a connection
+            # that never reached the command is worth waiting out rather than losing the run.
+            if attempt >= retries or not is_connect_phase_failure(result.stderr):
+                raise RestoreHostError(
+                    f"ssh connection to {self.host}:{self.port} failed: {result.stderr.strip()[-300:]}"
+                )
+            delay = min(5 * 3**attempt, 60)
+            attempt += 1
+            log.warning(
+                "ssh to %s:%s was refused before the command ran (%s); retry %d/%d in %ds",
+                self.host,
+                self.port,
+                result.stderr.strip()[-160:],
+                attempt,
+                retries,
+                delay,
             )
+            time.sleep(delay)
         if check and not result.ok:
             raise RestoreHostError(
                 f"command failed (rc={result.rc}) on {self.host}: {redact(command)[:120]}\n{result.stderr.strip()[-1500:]}"
@@ -131,7 +178,7 @@ class SSHSession:
         last = ""
         while time.time() < deadline:
             try:
-                result = self.run("echo bbic-ready", timeout=40)
+                result = self.run("echo bbic-ready", timeout=40, connect_retries=0)
                 if "bbic-ready" in result.stdout:
                     return
                 last = result.stderr

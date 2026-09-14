@@ -187,6 +187,11 @@ def test_cloud_init_user_data_contains_maintenance_sshd():
     assert data.startswith("#cloud-config\n")
     assert "Port 22022" in data and "bbic-sshd.service" in data and "ssh-ed25519 AAAA test" in data
     assert "PasswordAuthentication no" in data and "PermitRootLogin prohibit-password" in data
+    # Nothing under /etc/ssh: a restored conf_ynh_settings triggers a regen-conf that rewrites
+    # it, and the maintenance sshd re-reads its host key on every connection.
+    assert "HostKey /etc/borg-backup-integrity-check/ssh_host_ed25519_key" in data
+    assert "/etc/ssh/" not in data
+    assert "ssh-keygen" in data  # generated on first start
     import json
 
     doc = json.loads(data.split("\n", 1)[1])

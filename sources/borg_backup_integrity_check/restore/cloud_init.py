@@ -2,7 +2,9 @@
 
 Keeps the host reachable no matter what the restored YunoHost configuration
 does to the standard sshd: a dedicated maintenance sshd instance listens on
-``maintenance_port`` with its own config and authorized_keys file.
+``maintenance_port`` with its own config, host key and authorized_keys file.
+Nothing of it lives under ``/etc/ssh``, which YunoHost rewrites on every
+regen-conf (a restored ``conf_ynh_settings`` triggers one).
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ Port {port}
 ListenAddress 0.0.0.0
 ListenAddress ::
 PidFile /run/bbic-sshd.pid
-HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/borg-backup-integrity-check/ssh_host_ed25519_key
 PermitRootLogin prohibit-password
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -33,6 +35,7 @@ After=network.target
 ConditionPathExists=/etc/borg-backup-integrity-check/sshd_config
 
 [Service]
+ExecStartPre=/bin/sh -c 'test -s /etc/borg-backup-integrity-check/ssh_host_ed25519_key || ssh-keygen -q -t ed25519 -N "" -C bbic-maintenance -f /etc/borg-backup-integrity-check/ssh_host_ed25519_key'
 ExecStartPre=/usr/sbin/sshd -t -f /etc/borg-backup-integrity-check/sshd_config
 ExecStart=/usr/sbin/sshd -D -f /etc/borg-backup-integrity-check/sshd_config
 ExecReload=/bin/kill -HUP $MAINPID
