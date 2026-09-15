@@ -17,7 +17,11 @@ from ..borg.layout import BackupLayout, read_layout
 from ..borg.listing import DirectoryAggregates
 from ..config import AppConfig, BorgSource
 from ..discovery.components import Component, components_from_layout
-from ..discovery.large_data import LargeDataDiscovery, is_db_dump_item
+from ..discovery.large_data import (
+    LargeDataDiscovery,
+    is_db_dump_item,
+    keep_small_files_in_large_roots,
+)
 from ..discovery.profiles import ProfileRegistry
 from ..errors import (
     BorgError,
@@ -263,6 +267,15 @@ class IntegrityRun:
             self.samples[component.id] = sampler.select(
                 component, iter_cached_listing(self.listings[component.archive.name])
             )
+            if component.is_app:
+                kept = keep_small_files_in_large_roots(
+                    component, iter_cached_listing(self.listings[component.archive.name])
+                )
+                if kept:
+                    component.notes.append(
+                        f"{kept} small file(s) inside the large data are restored too "
+                        "(the app's own restore script reads them)"
+                    )
 
     def _build_manifest_and_compare(self) -> None:
         builder = ManifestBuilder(self.client, repository_id=None)

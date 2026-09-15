@@ -148,3 +148,53 @@ def test_operation_log_text_keeps_the_end_of_a_long_log(tmp_path):
     text = host_helper._operation_log_text(str(tmp_path / "op.log"), limit=100)
     assert text.startswith("[...truncated...]\n") and text.endswith("the actual error\n")
     assert len(text) < 200
+
+
+def test_core_patterns_keep_plumbing_files_out_of_the_exclusion():
+    """Order matters: borg takes the first matching pattern, so the includes precede the exclusion."""
+    root = "apps/immich/backup/home/yunohost.app/immich"
+    patterns = host_helper.core_patterns(
+        [
+            {
+                "archive_path": root,
+                "skeleton": [
+                    {"path": root},
+                    {"path": f"{root}/backups"},
+                    {"path": f"{root}/backups/restore_immich_db_backup.sh", "kind": "file"},
+                ],
+            }
+        ]
+    )
+    assert patterns == [
+        f"+ pf:{root}",
+        f"+ pf:{root}/backups",
+        f"+ pf:{root}/backups/restore_immich_db_backup.sh",
+        f"- pp:{root}",
+    ]
+    assert patterns.index(f"+ pf:{root}/backups/restore_immich_db_backup.sh") < patterns.index(
+        f"- pp:{root}"
+    )
+
+
+def test_skeleton_file_entries_are_not_recreated_as_directories(tmp_path):
+    """A kept file is extracted by borg; mkdir-ing its path would shadow it with a directory."""
+    work = tmp_path / "work"
+    (work / "root/backups").mkdir(parents=True)
+    kept = work / "root/backups/restore.sh"
+    kept.write_text("#!/bin/bash\n")
+    host_helper.materialise_skeleton(
+        work,
+        [
+            {
+                "archive_path": "root",
+                "skeleton": [
+                    {"path": "root"},
+                    {"path": "root/backups"},
+                    {"path": "root/backups/restore.sh", "kind": "file"},
+                    {"path": "root/upload"},
+                ],
+            }
+        ],
+    )
+    assert kept.is_file() and kept.read_text() == "#!/bin/bash\n"
+    assert (work / "root/upload").is_dir()  # directory entries are still recreated

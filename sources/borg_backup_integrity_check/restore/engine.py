@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..borg.listing import DirectoryAggregates
-from ..discovery.components import Component
+from ..discovery.components import Component, LargeRoot
 from ..logging_setup import get_logger
 from ..report.models import FAIL, PASS, SKIPPED, WARN, ComponentReport, VerificationLevel
 from .agent import HostAgent
@@ -98,7 +98,7 @@ class CoreRestoreEngine:
         spec = {
             "archive": comp.archive.name,
             "targets": {"system": [], "apps": [comp.id]},
-            "large_roots": [self._skeleton(comp, root.archive_path) for root in comp.large_roots],
+            "large_roots": [self._skeleton(comp, root) for root in comp.large_roots],
             "ssh_port": self.ssh_port,
             "force": True,
         }
@@ -117,13 +117,15 @@ class CoreRestoreEngine:
         outcome.results = {"result": app_result, "sparse_size": result.get("sparse_size")}
         return outcome
 
-    def _skeleton(self, comp: Component, root_path: str) -> dict:
+    def _skeleton(self, comp: Component, root: LargeRoot) -> dict:
+        """Directory items of the excluded root, plus the small files its restore script needs."""
         agg = self.aggregates.get(comp.archive.name)
-        skeleton = [{"path": root_path}]
+        skeleton: list[dict] = [{"path": root.archive_path}]
         if agg is not None:
-            for child, _ in agg.children(root_path):
+            for child, _ in agg.children(root.archive_path):
                 skeleton.append({"path": child})
-        return {"archive_path": root_path, "skeleton": skeleton}
+        skeleton.extend({"path": path, "kind": "file"} for path in root.keep_files)
+        return {"archive_path": root.archive_path, "skeleton": skeleton}
 
     # -------------------------------------------------------------- reports
     @staticmethod

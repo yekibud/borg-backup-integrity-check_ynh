@@ -48,9 +48,10 @@ class RestorePlan:
         for plan in self.all_plans:
             comp = plan.component
             if plan.restore_core:
+                kept = sum(root.keep_bytes for root in comp.large_roots)
                 total += (
-                    comp.core_size * 3 + comp.db_dump_size * 2
-                )  # tar + extracted work dir + restored copy
+                    comp.core_size + kept
+                ) * 3 + comp.db_dump_size * 2  # tar + extracted work dir + restored copy
             if plan.payload_mode == "full":
                 total += comp.large_size * 1.2
             elif plan.payload_mode == "sampled":

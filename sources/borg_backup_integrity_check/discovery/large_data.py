@@ -11,12 +11,17 @@ Evidence sources, in order of trust:
 5. a size heuristic: a directory that dominates the component's size, contains
    many files and looks like user content rather than code or databases.
 
-Everything not under a large root is "core" and restored normally.
+Everything not under a large root is "core" and restored normally, plus the small
+files inside a large root that an app's restore script needs (see
+``keep_small_files_in_large_roots``).
 """
 
 from __future__ import annotations
 
 import fnmatch
+import heapq
+import itertools
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from ..borg.listing import DirectoryAggregates
@@ -279,3 +284,80 @@ def _dedupe_roots(roots: list[LargeRoot]) -> list[LargeRoot]:
 def is_db_dump_item(item) -> bool:
     """Predicate for ``DirectoryAggregates.build(track=...)``: database dump files."""
     return item.is_file and _looks_like_db_dump(item.path)
+
+
+# An app's restore script reads scripts, dumps and configuration that live *inside* its data
+# directory (immich chowns backups/restore_immich_db_backup.sh there). Excluding the whole root
+# makes those restores fail, so the app's own plumbing comes along - never user payload, which
+# always sits deeper, under per-user or per-object directories.
+KEEP_FILE_MAX_BYTES = 1 << 20
+KEEP_SHALLOW_DEPTH = 1  # the root itself and one directory down
+KEEP_PLUMBING_DEPTH = 3  # deeper only when the name says plumbing, not payload
+KEEP_FILES_PER_ROOT = 2000
+KEEP_BYTES_PER_ROOT = 256 << 20
+PLUMBING_SUFFIXES = (
+    ".sh",
+    ".sql",
+    ".conf",
+    ".cfg",
+    ".ini",
+    ".env",
+    ".json",
+    ".yml",
+    ".yaml",
+    ".toml",
+    ".service",
+)
+
+
+def _is_plumbing(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1].lower()
+    return name.endswith(PLUMBING_SUFFIXES)
+
+
+def keep_small_files_in_large_roots(component: Component, items: Iterable) -> int:
+    """Pick the small plumbing files of each large root; returns how many were kept in total.
+
+    Bounded in memory (a per-root heap of the best candidates) because a large root can hold
+    hundreds of thousands of small files - thumbnails, chunks - that must not all be kept.
+    """
+    roots = component.large_roots
+    if not roots:
+        return 0
+    heaps: dict[str, list] = {root.archive_path: [] for root in roots}
+    tie = itertools.count()
+    for item in items:
+        if not item.is_file or item.size > KEEP_FILE_MAX_BYTES:
+            continue
+        for root_path, heap in heaps.items():
+            if not item.path.startswith(root_path + "/"):
+                continue
+            depth = item.path[len(root_path) + 1 :].count("/")
+            if depth <= KEEP_SHALLOW_DEPTH or (
+                depth <= KEEP_PLUMBING_DEPTH and _is_plumbing(item.path)
+            ):
+                # The heap's root is the worst candidate (deepest, then largest), so it is the
+                # one to drop once the budget is full.
+                key = (-depth, -item.size)
+                entry = (key, next(tie), item.path, item.size)
+                if len(heap) < KEEP_FILES_PER_ROOT:
+                    heapq.heappush(heap, entry)
+                elif key > heap[0][0]:
+                    heapq.heapreplace(heap, entry)
+            break
+    kept = 0
+    for root in roots:
+        chosen: list[str] = []
+        total = 0
+        shallowest_first = sorted(
+            heaps[root.archive_path], key=lambda e: (-e[0][0], -e[0][1], e[2])
+        )
+        for _key, _tie, path, size in shallowest_first:
+            if total + size > KEEP_BYTES_PER_ROOT:
+                continue
+            chosen.append(path)
+            total += size
+        root.keep_files = sorted(chosen)
+        root.keep_bytes = total
+        kept += len(chosen)
+    return kept

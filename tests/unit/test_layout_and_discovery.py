@@ -8,8 +8,12 @@ from borg_backup_integrity_check.borg.layout import (
     parse_backup_csv,
 )
 from borg_backup_integrity_check.borg.listing import DirectoryAggregates
-from borg_backup_integrity_check.discovery.components import components_from_layout
-from borg_backup_integrity_check.discovery.large_data import LargeDataDiscovery, is_db_dump_item
+from borg_backup_integrity_check.discovery.components import LargeRoot, components_from_layout
+from borg_backup_integrity_check.discovery.large_data import (
+    LargeDataDiscovery,
+    is_db_dump_item,
+    keep_small_files_in_large_roots,
+)
 from borg_backup_integrity_check.discovery.profiles import ProfileRegistry, SamplingProfile
 
 
@@ -174,3 +178,78 @@ def test_layout_reads_main_domain(tmp_path):
     (root / "conf" / "ynh" / "current_host").write_text("example.org\n")
     layout = load_layout_from_dir("auto_conf-x", root)
     assert layout.main_domain == "example.org" and layout.system_parts == ["conf_ynh_settings"]
+
+
+# ---------------------------------------------------------- small files inside large data
+ROOT = "apps/immich/backup/home/yunohost.app/immich"
+
+
+def _immich_component(synthetic_app_layout, archive_ref, listing_root=ROOT):
+    synthetic_app_layout.apps = {}
+    synthetic_app_layout.info.apps = {"immich": {}}
+    comps = components_from_layout(archive_ref, "auto_immich", synthetic_app_layout)
+    comp = comps[0]
+    comp.large_roots = [
+        LargeRoot(
+            archive_path=listing_root, live_path="/home/yunohost.app/immich", origin="profile"
+        )
+    ]
+    return comp
+
+
+def test_app_plumbing_inside_a_large_root_is_restored_but_payload_is_not(
+    synthetic_app_layout, archive_ref
+):
+    """The failure this rule exists for: immich's restore script chowns a file in its data dir."""
+    comp = _immich_component(synthetic_app_layout, archive_ref)
+    items = [
+        make_item(f"{ROOT}/backups/restore_immich_db_backup.sh", 1200),
+        make_item(f"{ROOT}/.env", 300),
+        make_item(f"{ROOT}/library/meta/sidecar.json", 900),  # plumbing name, deeper
+        make_item(f"{ROOT}/upload/thumbs/ab/cd/x.jpeg", 150_000),  # payload, deep
+        make_item(f"{ROOT}/upload/upload/user/ab/big.jpg", 3_000_000),  # payload, big
+        make_item(f"{ROOT}/alice/files/holiday.pdf", 200_000),  # user payload, not plumbing
+        make_item(f"{ROOT}/backups/huge_dump.sql", 8 << 20),  # plumbing name but bulk-sized
+    ]
+    kept = keep_small_files_in_large_roots(comp, items)
+    names = [p[len(ROOT) + 1 :] for p in comp.large_roots[0].keep_files]
+    assert kept == 3
+    assert names == [".env", "backups/restore_immich_db_backup.sh", "library/meta/sidecar.json"]
+    assert comp.large_roots[0].keep_bytes == 2400
+
+
+def test_user_payload_of_the_synthetic_app_is_never_kept(
+    synthetic_app_listing, synthetic_app_layout, archive_ref
+):
+    comp = _immich_component(
+        synthetic_app_layout, archive_ref, "apps/filebox/backup/home/yunohost.app/filebox"
+    )
+    assert keep_small_files_in_large_roots(comp, synthetic_app_listing) == 0
+
+
+def test_keepers_are_bounded_when_a_root_is_full_of_small_files(synthetic_app_layout, archive_ref):
+    comp = _immich_component(synthetic_app_layout, archive_ref)
+    items = [make_item(f"{ROOT}/conf/n{i}.json", 200_000) for i in range(5000)]
+    keep_small_files_in_large_roots(comp, items)
+    root = comp.large_roots[0]
+    assert len(root.keep_files) <= 2000 and root.keep_bytes <= 256 << 20
+
+
+def test_kept_files_are_costed_as_disk_but_not_counted_as_backup_size(
+    synthetic_app_layout, archive_ref
+):
+    """logical_size describes the backup; what we choose to restore must not inflate it."""
+    from borg_backup_integrity_check.restore.planner import ComponentPlan, RestorePlan
+
+    comp = _immich_component(synthetic_app_layout, archive_ref)
+    comp.core_size = 1_000_000
+    comp.large_roots[0].size = 59_000_000_000
+    before = comp.logical_size
+    keep_small_files_in_large_roots(comp, [make_item(f"{ROOT}/backups/restore.sh", 1200)])
+    assert comp.logical_size == before  # the archive did not change
+
+    plan = RestorePlan(mode="sampled")
+    plan.apps.append(ComponentPlan(component=comp, restore_core=True, payload_mode="sampled"))
+    with_keepers = plan.disk_estimate_bytes()
+    comp.large_roots[0].keep_files, comp.large_roots[0].keep_bytes = [], 0
+    assert with_keepers > plan.disk_estimate_bytes()  # but it does cost disk on the restore host

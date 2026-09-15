@@ -492,11 +492,7 @@ def cmd_restore_core(ns: argparse.Namespace) -> dict:
         }
     result["extract_warnings"] = proc.returncode != 0
     # 2. Make sure skeleton dirs exist with the right ownership even if borg skipped them.
-    for root in spec.get("large_roots", []):
-        for entry in root.get("skeleton", []):
-            path = work / entry["path"]
-            path.mkdir(parents=True, exist_ok=True)
-            _apply_owner(path, entry)
+    materialise_skeleton(work, spec.get("large_roots", []))
     # 3. Rewrite info.json sizes to what is really in the tar (YunoHost checks free disk space against them).
     info_path = work / "info.json"
     if not info_path.is_file():
@@ -683,8 +679,27 @@ def cmd_extract_payload(ns: argparse.Namespace) -> dict:
     return {"ok": all(r["error"] is None for r in results), "roots": results}
 
 
+def materialise_skeleton(work: Path, large_roots: list[dict]) -> None:
+    """Recreate the excluded roots' directories with their archive ownership (borg may skip them).
+
+    Entries marked ``kind: file`` are the small plumbing files the patterns did extract - making
+    a directory of their path would shadow the file the app's restore script is about to read.
+    """
+    for root in large_roots:
+        for entry in root.get("skeleton", []):
+            if entry.get("kind") == "file":
+                continue
+            path = work / entry["path"]
+            path.mkdir(parents=True, exist_ok=True)
+            _apply_owner(path, entry)
+
+
 def core_patterns(large_roots: list[dict]) -> list[str]:
-    """Borg patterns extracting everything but the large roots, keeping their skeleton directory items."""
+    """Borg patterns extracting everything but the large roots.
+
+    A root's skeleton survives the exclusion: its directory items, and the small plumbing files
+    the app's own restore script reads (borg takes the first matching pattern, so they come first).
+    """
     patterns: list[str] = []
     for root in large_roots:
         for entry in root.get("skeleton", []):
