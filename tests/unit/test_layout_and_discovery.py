@@ -230,6 +230,23 @@ def test_a_state_directory_is_never_restored_in_part(synthetic_app_layout, archi
     assert comp.large_roots[0].keep_dirs == [] and comp.large_roots[0].keep_files == []
 
 
+def test_small_files_survive_a_plumbing_directory_that_is_too_big(
+    synthetic_app_layout, archive_ref
+):
+    """immich's real shape: 25 GB of database dumps next to the 1.8 kB script its restore chowns."""
+    comp = _app_with_root(synthetic_app_layout, archive_ref)
+    items = dir_items(f"{ROOT}/backups") + [
+        make_item(f"{ROOT}/backups/immich-db-backup-{day}.sql.gz", 300 << 20) for day in range(90)
+    ]
+    items.append(make_item(f"{ROOT}/backups/restore_immich_db_backup.sh", 1831))
+
+    kept = keep_app_plumbing(comp, DirectoryAggregates.build(items), items)
+    root = comp.large_roots[0]
+
+    assert kept == 1 and root.keep_dirs == []
+    assert root.keep_files == [f"{ROOT}/backups/restore_immich_db_backup.sh"]
+
+
 def test_a_plumbing_directory_too_big_to_be_plumbing_is_left_out(synthetic_app_layout, archive_ref):
     comp = _app_with_root(synthetic_app_layout, archive_ref)
     items = dir_items(f"{ROOT}/backups") + [

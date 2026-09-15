@@ -111,6 +111,10 @@ class CoreRestoreEngine:
             timeout=1800,
         )
 
+    def restart_services(self, app: str) -> list[str]:
+        result = self.agent.call("restart-services", args=["--app", app], timeout=900)
+        return result.get("restarted", [])
+
     def unmount_large_roots(self) -> list[str]:
         """Release every mount: an open archive mount holds a lock on the production repository."""
         return self.agent.call("unmount-large-roots", timeout=900).get("unmounted", [])

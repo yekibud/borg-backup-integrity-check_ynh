@@ -868,6 +868,15 @@ def _mount_archive(archive: str, target: Path) -> tuple[bool, str]:
     return False, "; ".join(errors) or "no borg binary available"
 
 
+def cmd_restart_services(ns: argparse.Namespace) -> dict:
+    """Restart an app's services so they see data that appeared underneath them."""
+    restarted, failed = [], []
+    for service in _yunohost_services_for(ns.app):
+        proc = sh(["systemctl", "restart", service["name"]], timeout=600)
+        (restarted if proc.returncode == 0 else failed).append(service["name"])
+    return {"ok": not failed, "restarted": restarted, "failed": failed}
+
+
 def cmd_mount_large_roots(ns: argparse.Namespace) -> dict:
     """Serve an archive's large data from the repository instead of extracting it.
 
@@ -1216,6 +1225,7 @@ COMMANDS = {
     "restore-core": cmd_restore_core,
     "extract-payload": cmd_extract_payload,
     "mount-large-roots": cmd_mount_large_roots,
+    "restart-services": cmd_restart_services,
     "unmount-large-roots": cmd_unmount_large_roots,
     "describe": cmd_describe,
     "health": cmd_health,

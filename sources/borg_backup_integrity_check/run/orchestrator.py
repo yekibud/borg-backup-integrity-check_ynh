@@ -269,8 +269,7 @@ class IntegrityRun:
             self.samples[component.id] = sampler.select(
                 component, iter_cached_listing(self.listings[component.archive.name])
             )
-            if component.is_app and str(self.config.large_data_mode) != "mount":
-                # Mounted large data needs no guessing about which parts to restore anyway.
+            if component.is_app:
                 kept = keep_app_plumbing(
                     component,
                     self.aggregates[component.archive.name],
@@ -643,9 +642,12 @@ class IntegrityRun:
                 large_roots=[r.archive_path for r in comp.large_roots],
             )
             report.notes.extend(comp.notes)
-            self._mount_large_data(engine, cp, report)
             outcome = engine.restore_app(cp)
             engine.apply_outcome(report, outcome)
+            if outcome.ok:
+                # Only now: during the restore the live path must not be a mount point, or
+                # ynh_restore fails moving it aside ("Device or resource busy").
+                self._mount_large_data(engine, cp, report)
             self._save_restore_log(report, outcome)
             self.report.components.append(report)
         for cp in self.plan.system_data:
@@ -666,6 +668,8 @@ class IntegrityRun:
         mounted = result.get("mounted") or []
         if mounted:
             self.mounted[cp.component.id] = mounted
+            if cp.component.is_app:
+                engine.restart_services(cp.component.id)
             report.notes.append(
                 f"large data served read-only from the archive ({len(mounted)} root(s) mounted"
                 + ("" if result.get("metacopy") else ", without metacopy")

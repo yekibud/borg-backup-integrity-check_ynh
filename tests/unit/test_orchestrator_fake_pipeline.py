@@ -711,9 +711,17 @@ def test_mounted_large_data_replaces_extraction(pipeline):
         for i, (name, spec) in enumerate(agent.calls)
         if name == "restore-core" and spec["targets"]["apps"]
     )
-    assert commands.index("mount-large-roots") < app_restore, (
-        "the data dir must be in place before the app's own restore script touches it"
+    app_mount = next(
+        i
+        for i, (name, spec) in enumerate(agent.calls)
+        if name == "mount-large-roots"
+        and any("/filebox" in root["live_path"] for root in spec["roots"])
     )
+    assert app_mount > app_restore, (
+        "ynh_restore moves the live path aside and cannot remove a mount point, so the app's "
+        "data dir must not be mounted while its restore runs"
+    )
+    assert "restart-services" in commands, "services must see the data that appeared under them"
     assert commands.count("unmount-large-roots") == 1 and agent.mounted == []
 
     filebox = next(c for c in report.components if c.id == "filebox")

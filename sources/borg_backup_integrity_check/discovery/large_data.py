@@ -322,15 +322,21 @@ def keep_app_plumbing(component: Component, agg: DirectoryAggregates, items: Ite
     if not roots:
         return 0
     kept = 0
+    oversized: dict[str, LargeRoot] = {}
     for root in roots:
         budget = KEEP_BYTES_PER_ROOT
         dirs: list[str] = []
         for child, stats in sorted(agg.children(root.archive_path)):
             if child.rsplit("/", 1)[-1].lower() not in PLUMBING_DIR_NAMES:
                 continue
-            if stats.size > KEEP_DIR_MAX_BYTES or stats.files > KEEP_DIR_MAX_FILES:
-                continue
-            if stats.size > budget:
+            if (
+                stats.size > KEEP_DIR_MAX_BYTES
+                or stats.files > KEEP_DIR_MAX_FILES
+                or stats.size > budget
+            ):
+                # Too big to restore whole - immich keeps months of database dumps in backups/ -
+                # but its small files still matter: the app's restore script reads them.
+                oversized[child] = root
                 continue
             dirs.append(child)
             budget -= stats.size
@@ -341,7 +347,8 @@ def keep_app_plumbing(component: Component, agg: DirectoryAggregates, items: Ite
     for item in items:
         if not item.is_file or item.size > KEEP_FILE_MAX_BYTES:
             continue
-        root = prefixes.get(item.path.rsplit("/", 1)[0])
+        parent = item.path.rsplit("/", 1)[0]
+        root = prefixes.get(parent) or oversized.get(parent)
         if root is None or root.keep_bytes + item.size > KEEP_BYTES_PER_ROOT:
             continue
         root.keep_files.append(item.path)
