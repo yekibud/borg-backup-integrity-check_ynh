@@ -234,6 +234,7 @@ def cmd_install_borg_client(ns: argparse.Namespace) -> dict:
         "libzstd-dev",
         "libxxhash-dev",
         "libfuse3-dev",
+        "fuse3",
         "borgbackup",
     ]
     apt = sh(
@@ -268,6 +269,13 @@ def cmd_install_borg_client(ns: argparse.Namespace) -> dict:
             timeout=3600,
         )
         if pip.returncode == 0 and binary.exists():
+            # `borg mount` needs FUSE bindings; without them the large-data mount falls back to
+            # sampled extraction, so a failure here is not fatal.
+            fuse = sh(
+                [str(venv / "bin" / "python3"), "-m", "pip", "install", "--quiet", "pyfuse3"],
+                timeout=1800,
+            )
+            result["fuse"] = fuse.returncode == 0
             result.update({"ok": True, "binary": str(binary), "version": wanted})
             _set_env_value("BBIC_BORG_BINARY", str(binary))
             return result
@@ -805,6 +813,137 @@ def _merge_tree(src: Path, dst: Path) -> None:
         sh(["cp", "-a", str(src), str(dst)], timeout=6 * 3600, check=True)
 
 
+MOUNT_ROOT = Path("/mnt/bbic")
+MOUNTS_FILE = Path("/proc/mounts")
+
+
+def _borg_candidates() -> list[str]:
+    """Binaries to try for `borg mount`, best first: not every borg build has FUSE support."""
+    seen: list[str] = []
+    for candidate in (
+        borg_env().get("BBIC_BORG_BINARY"),
+        "/opt/bbic-borg/bin/borg",
+        shutil.which("borg"),
+    ):
+        if candidate and candidate not in seen and Path(candidate).exists():
+            seen.append(candidate)
+    return seen
+
+
+def _enable_metacopy() -> bool:
+    """Metadata-only copy-up: without it, an app's `chown -R` copies the whole data set up."""
+    sh(["modprobe", "overlay"], timeout=60)
+    knob = Path("/sys/module/overlay/parameters/metacopy")
+    if not knob.is_file():
+        return False
+    try:
+        if knob.read_text().strip().upper().startswith("N"):
+            knob.write_text("Y")
+        return knob.read_text().strip().upper().startswith("Y")
+    except OSError:
+        return False
+
+
+def _mount_archive(archive: str, target: Path) -> tuple[bool, str]:
+    target.mkdir(parents=True, exist_ok=True)
+    if os.path.ismount(target):
+        return True, ""
+    errors = []
+    for binary in _borg_candidates():
+        proc = sh(
+            [
+                binary,
+                "--lock-wait",
+                borg_env().get("BBIC_LOCK_WAIT", "900"),
+                "mount",
+                f"::{archive}",
+                str(target),
+            ],
+            timeout=1800,
+            env=borg_env(),
+        )
+        if proc.returncode == 0 and os.path.ismount(target):
+            return True, binary
+        errors.append(f"{binary}: {proc.stderr.decode('utf-8', 'replace').strip()[-200:]}")
+    return False, "; ".join(errors) or "no borg binary available"
+
+
+def cmd_mount_large_roots(ns: argparse.Namespace) -> dict:
+    """Serve an archive's large data from the repository instead of extracting it.
+
+    Spec: {"archive": "...", "roots": [{"archive_path": "...", "live_path": "..."}]}
+    Each root becomes an overlay whose lower layer is the archive (read-only, fetched on demand)
+    and whose upper layer is local disk, so the restored app can write.
+    """
+    spec = json.load(sys.stdin)
+    archive = spec["archive"]
+    name = re.sub(r"[^A-Za-z0-9_.-]", "_", archive)[:60]
+    mountpoint = MOUNT_ROOT / "archives" / name
+    ok, detail = _mount_archive(archive, mountpoint)
+    if not ok:
+        return {"ok": False, "error": f"borg mount failed ({detail})"}
+    metacopy = _enable_metacopy()
+    mounted, errors = [], []
+    roots = sorted(spec.get("roots", []), key=lambda r: len(Path(r["live_path"]).parts))
+    for index, root in enumerate(roots):
+        lower = mountpoint / root["archive_path"]
+        live = Path(root["live_path"])
+        if not lower.is_dir():
+            errors.append(f"{root['archive_path']}: not a directory in the archive")
+            continue
+        upper = MOUNT_ROOT / "upper" / name / str(index)
+        work = MOUNT_ROOT / "work" / name / str(index)
+        for path in (upper, work, live):
+            path.mkdir(parents=True, exist_ok=True)
+        options = f"lowerdir={lower},upperdir={upper},workdir={work}"
+        proc = sh(
+            [
+                "mount",
+                "-t",
+                "overlay",
+                "bbic-overlay",
+                "-o",
+                options + (",metacopy=on" if metacopy else ""),
+                str(live),
+            ],
+            timeout=300,
+        )
+        if proc.returncode != 0 and metacopy:
+            proc = sh(
+                ["mount", "-t", "overlay", "bbic-overlay", "-o", options, str(live)], timeout=300
+            )
+        if proc.returncode != 0:
+            errors.append(
+                f"{root['live_path']}: {proc.stderr.decode('utf-8', 'replace').strip()[-200:]}"
+            )
+            continue
+        mounted.append(root["live_path"])
+    return {
+        "ok": bool(mounted) and not errors,
+        "mounted": mounted,
+        "errors": errors,
+        "metacopy": metacopy,
+        "archive_mountpoint": str(mountpoint),
+    }
+
+
+def cmd_unmount_large_roots(ns: argparse.Namespace) -> dict:
+    """Unmount every overlay and archive mount, so the host can be destroyed cleanly."""
+    actions = []
+    for line in reversed(MOUNTS_FILE.read_text(encoding="utf-8").splitlines()):
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        device, target, fstype = fields[0], fields[1].replace("\\040", " "), fields[2]
+        if device == "bbic-overlay" or (
+            fstype.startswith("fuse") and target.startswith(str(MOUNT_ROOT))
+        ):
+            if sh(["umount", target], timeout=300).returncode != 0:
+                sh(["umount", "-l", target], timeout=300)
+            actions.append(target)
+    return {"ok": True, "unmounted": actions}
+
+
 def cmd_describe(ns: argparse.Namespace) -> dict:
     """Run the generic evidence extractor on the host for every object in the spec."""
     from ..evidence.extractors import EvidenceExtractor
@@ -1076,6 +1215,8 @@ COMMANDS = {
     "add-domain": cmd_add_domain,
     "restore-core": cmd_restore_core,
     "extract-payload": cmd_extract_payload,
+    "mount-large-roots": cmd_mount_large_roots,
+    "unmount-large-roots": cmd_unmount_large_roots,
     "describe": cmd_describe,
     "health": cmd_health,
     "mail-verify": cmd_mail_verify,

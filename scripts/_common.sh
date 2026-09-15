@@ -25,6 +25,7 @@ bbic_default_settings=(
     "vm_min_memory_mb=4096"
     "vm_ssh_port=22022"
     "prefer_ipv6=0"
+    "large_data_mode=mount"
     "components=all"
     "borg_check_level=archives"
     "deep_check=sampled_dry_run"

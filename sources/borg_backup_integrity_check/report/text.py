@@ -348,6 +348,13 @@ def _retained_block(report: RunReport, add) -> None:
         add(
             f"{'Destroyed at:':<16}{_fmt_dt(host.expires_at)} (or run: borg-backup-integrity-check destroy)"
         )
+    if any(
+        "served read-only from the archive" in note for c in report.components for note in c.notes
+    ):
+        add("")
+        add("Bulk data was served from the backup during the run and unmounted at the end: an")
+        add("open archive mount holds a lock on the production repository. Configuration,")
+        add("databases and the sampled objects are still there.")
     if host.domains:
         add("")
         add("To browse restored applications, map the domains to the server in /etc/hosts:")

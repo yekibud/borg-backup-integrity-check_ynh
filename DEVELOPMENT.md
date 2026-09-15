@@ -33,6 +33,15 @@ Key design decisions:
 * **One configuration model.** Install questions and config panel options are the same setting ids; the Python side only reads `settings.yml`. Secrets go through `borg-backup-integrity-check secret set NAME --stdin` (stdin, never argv) into a 0600 root file. Config-panel password fields use `bind = "null"` + `set__` setters; blank (or the literal `None` the core sends for untouched password inputs) keeps the stored value.
 * **Sparse core restore through YunoHost itself.** On the disposable host, `host_helper restore-core` extracts an archive minus its large roots (keeping skeleton dirs with their ownership), rewrites `info.json` sizes (YunoHost checks free disk against them), rebuilds a `.tar` in `/home/yunohost.backup/archives/` and runs `yunohost backup restore`. Payload (sampled or full) is then extracted directly into the live paths with ancestor directory items for ownership.
 * **Restore-host hazards handled** (learned from upstream sources): after a system restore `regen_conf()` moves sshd to the production port with `PermitRootLogin no` for public addresses and rebuilds nftables from the restored `firewall.yml` -> a dedicated maintenance sshd (cloud-init, port 22022) + `yunohost firewall open` after every restore; restored DynDNS keys would re-point the production domain -> `/etc/hosts` block + key/cron removal; restored postfix relay could send as production -> error transport; restored `borg`/`borgserver`/self apps are never restored and borg timers are disabled on the host.
+* **Large data is mounted, not extracted.** The restore host runs `borg mount` on the component's
+  archive and overlays each large root onto its live path (lower = the archive, upper = local disk)
+  before the app's own restore script runs, so applications see their whole data set and only what is
+  read is fetched. Measured on a real 53 GB / 173k-file Immich archive over a Hetzner Storage Box:
+  full metadata walk 24 s, `chown -R` (which immich's restore does) 1m44s with an 828 MB upper layer -
+  `metacopy=on` is what keeps that from copying up the whole tree, so the helper enables it.
+  Mounts are always released at the end of a run, retained hosts included: an open archive mount holds
+  a lock on the production repository. `large_data_mode = sample` restores the previous behaviour, and
+  a host that cannot mount falls back to it automatically with a warning.
 * **Generic first.** Nothing in the core references Nextcloud/Immich/Roundcube/Hetzner specifically; profiles and providers are plug-ins behind small contracts.
 * **Never overstate.** Every sampled object carries a `VerificationLevel`; the report distinguishes EXTRACTED AND READABLE from REFERENCED BY APPLICATION (name found in the restored DB) and VERIFIED THROUGH APPLICATION (e.g. Dovecot search by Message-ID).
 

@@ -165,6 +165,29 @@ class FakeAgent:
         self.host_root = host_root
         self.fail_app = fail_app
         self.calls: list[tuple[str, dict | None]] = []
+        self.mounted: list[str] = []
+        self.mount_error: str | None = None
+
+    def _materialise(self, live_path: str) -> Path:
+        """Write the bytes an extraction (or a read through the mount) would produce."""
+        live = self.host_root / live_path.lstrip("/")
+        live.parent.mkdir(parents=True, exist_ok=True)
+        if live.exists():
+            return live
+        name = live.name
+        if name.endswith(".jpg"):
+            live.write_bytes(_jpeg())
+        elif name.endswith(".odt"):
+            with zipfile.ZipFile(live, "w") as zf:
+                zf.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+                zf.writestr("content.xml", "<x/>")
+        elif "/cur/" in live_path or "/new/" in live_path:
+            live.write_bytes(_email(int(name.split(".")[0])))
+        elif name == "broken.pdf":
+            live.write_bytes(b"")
+        else:
+            live.write_bytes(b"%PDF-1.7\n%fake\n")
+        return live
 
     def deploy(self):
         return None
@@ -191,26 +214,22 @@ class FakeAgent:
                 "log": "/var/log/yunohost/categories/operation/x.log",
                 "sparse_size": 123,
             }
+        if command == "mount-large-roots":
+            if self.mount_error:
+                return {"ok": False, "mounted": [], "errors": [self.mount_error]}
+            live_paths = [root["live_path"] for root in spec["roots"]]
+            self.mounted += live_paths
+            return {"ok": True, "mounted": live_paths, "errors": [], "metacopy": True}
+        if command == "unmount-large-roots":
+            released, self.mounted = self.mounted, []
+            return {"ok": True, "unmounted": released}
         if command == "extract-payload":
             roots = []
             for root in spec["roots"]:
                 objs = []
                 for obj in root["objects"]:
-                    live = self.host_root / obj["live_path"].lstrip("/")
-                    live.parent.mkdir(parents=True, exist_ok=True)
+                    live = self._materialise(obj["live_path"])
                     name = live.name
-                    if name.endswith(".jpg"):
-                        live.write_bytes(_jpeg())
-                    elif name.endswith(".odt"):
-                        with zipfile.ZipFile(live, "w") as zf:
-                            zf.writestr("mimetype", "application/vnd.oasis.opendocument.text")
-                            zf.writestr("content.xml", "<x/>")
-                    elif "/cur/" in obj["live_path"] or "/new/" in obj["live_path"]:
-                        live.write_bytes(_email(int(name.split(".")[0])))
-                    elif name == "broken.pdf":
-                        live.write_bytes(b"")
-                    else:
-                        live.write_bytes(b"%PDF-1.7\n%fake\n")
                     objs.append(
                         {
                             "archive_path": obj["archive_path"],
@@ -233,6 +252,8 @@ class FakeAgent:
             ex = EvidenceExtractor()
             out = []
             for obj in spec["objects"]:
+                if any(obj["live_path"].startswith(root) for root in self.mounted):
+                    self._materialise(obj["live_path"])  # served by the overlay on first read
                 path = self.host_root / obj["live_path"].lstrip("/")
                 ev = ex.describe(
                     path,
@@ -362,6 +383,7 @@ def pipeline(tmp_path, monkeypatch, synthetic_app_listing, synthetic_app_layout)
                 "borg_repository": "ssh://u@h/./repo",
                 "sample_size": 10,
                 "deep_check_sample": 20,
+                "large_data_mode": "sample",
             }
         )
     )
@@ -670,3 +692,85 @@ def test_out_of_scope_apps_skip_full_listing(pipeline):
     metrics = report.manifest.components["filebox"]
     assert metrics.logical_size > 0 and metrics.file_count > 0 and metrics.large_roots == []
     assert "borg info" in " ".join(filebox.notes)
+
+
+def test_mounted_large_data_replaces_extraction(pipeline):
+    """Bulk data comes from the archive through an overlay: nothing is extracted, and the
+    mounts are released before the host is destroyed (they hold a lock on the repository)."""
+    cfg = pipeline["config"]
+    cfg.raw["large_data_mode"] = "mount"
+    run = orch.IntegrityRun(cfg, orch.RunOptions(mode="sampled"))
+    report = run.run()
+
+    agent = pipeline["agents"][0]
+    commands = [name for name, _ in agent.calls]
+    assert "extract-payload" not in commands
+    app_restore = next(
+        i
+        for i, (name, spec) in enumerate(agent.calls)
+        if name == "restore-core" and spec["targets"]["apps"]
+    )
+    assert commands.index("mount-large-roots") < app_restore, (
+        "the data dir must be in place before the app's own restore script touches it"
+    )
+    assert commands.count("unmount-large-roots") == 1 and agent.mounted == []
+
+    filebox = next(c for c in report.components if c.id == "filebox")
+    # Only the genuinely empty object stays unreadable; nothing is missing for lack of extraction.
+    assert filebox.samples and filebox.samples_readable == len(filebox.samples) - 1
+    assert not any(s.error == "not extracted" for s in filebox.samples)
+    assert any("served read-only from the archive" in note for note in filebox.notes)
+    text = (cfg.paths.runs_dir / run.run_id / "report.txt").read_text()
+    assert "IMG_" in text and "Weekend plans" in text
+
+
+def test_mount_failure_falls_back_to_extraction(pipeline):
+    cfg = pipeline["config"]
+    cfg.raw["large_data_mode"] = "mount"
+
+    original = orch.HostAgent
+
+    def failing_agent(ssh):
+        agent = original(ssh)
+        agent.mount_error = "fuse not available"
+        return agent
+
+    orch.HostAgent = failing_agent
+    try:
+        run = orch.IntegrityRun(cfg, orch.RunOptions(mode="sampled"))
+        report = run.run()
+    finally:
+        orch.HostAgent = original
+
+    commands = [name for name, _ in pipeline["agents"][0].calls]
+    assert "extract-payload" in commands
+    assert any("falling back to sampled extraction" in w for w in report.warnings)
+    filebox = next(c for c in report.components if c.id == "filebox")
+    assert filebox.samples, "samples are still collected when mounting is unavailable"
+
+
+def test_system_data_is_mounted_before_the_apps_nested_inside_it(pipeline):
+    """/home must be overlaid before /home/yunohost.app/<app>, or the app mount is hidden."""
+    cfg = pipeline["config"]
+    cfg.raw["large_data_mode"] = "mount"
+    orch.IntegrityRun(cfg, orch.RunOptions(mode="sampled")).run()
+
+    mounts = [
+        (i, spec["roots"][0]["live_path"])
+        for i, (name, spec) in enumerate(pipeline["agents"][0].calls)
+        if name == "mount-large-roots"
+    ]
+    by_path = {path: i for i, path in mounts}
+    nested = [p for p in by_path if p.startswith("/home/yunohost.app/")]
+    assert nested, "the fake app has a data dir under /home"
+    if "/home" in by_path:
+        assert all(by_path["/home"] < by_path[p] for p in nested)
+
+
+def test_a_full_restore_never_mounts(pipeline):
+    cfg = pipeline["config"]
+    cfg.raw["large_data_mode"] = "mount"
+    orch.IntegrityRun(cfg, orch.RunOptions(mode="full")).run()
+
+    commands = [name for name, _ in pipeline["agents"][0].calls]
+    assert "mount-large-roots" not in commands and "extract-payload" in commands

@@ -263,3 +263,89 @@ def test_nothing_is_touched_when_the_restore_added_nothing(tmp_path):
 
     assert host_helper.revert_apt_sources(before, dirs) == []
     assert (dirs[0] / "yunohost.sources").exists()  # deb822 files are covered like any other
+
+
+def test_mount_large_roots_overlays_each_root(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_sh(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:1] == ["mount"] or cmd[:1] == ["modprobe"]:
+            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    mount_root = tmp_path / "mnt"
+    archive_dir = mount_root / "archives" / "auto_immich-2026-09-15T00_06_15"
+    lower = archive_dir / "apps/immich/backup/home/yunohost.app/immich"
+    lower.mkdir(parents=True)
+    live = tmp_path / "live" / "immich"
+
+    monkeypatch.setattr(host_helper, "sh", fake_sh)
+    monkeypatch.setattr(host_helper, "MOUNT_ROOT", mount_root)
+    monkeypatch.setattr(host_helper, "borg_env", lambda: {"BBIC_LOCK_WAIT": "900"})
+    monkeypatch.setattr(host_helper, "_borg_candidates", lambda: ["/usr/bin/borg"])
+    monkeypatch.setattr(host_helper.os.path, "ismount", lambda path: True)
+    monkeypatch.setattr(host_helper, "_enable_metacopy", lambda: True)
+    spec = {
+        "archive": "auto_immich-2026-09-15T00:06:15",
+        "roots": [
+            {
+                "archive_path": "apps/immich/backup/home/yunohost.app/immich",
+                "live_path": str(live),
+            }
+        ],
+    }
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps(spec)))
+    result = host_helper.cmd_mount_large_roots(None)
+
+    assert result["ok"] and result["mounted"] == [str(live)] and result["metacopy"] is True
+    overlay = next(c for c in calls if c[:3] == ["mount", "-t", "overlay"])
+    options = overlay[overlay.index("-o") + 1]
+    assert "metacopy=on" in options and f"lowerdir={lower}" in options
+    assert live.is_dir()
+
+
+def test_mount_large_roots_reports_a_root_missing_from_the_archive(tmp_path, monkeypatch):
+    mount_root = tmp_path / "mnt"
+    (mount_root / "archives" / "auto_x").mkdir(parents=True)
+    monkeypatch.setattr(
+        host_helper, "sh", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, b"", b"")
+    )
+    monkeypatch.setattr(host_helper, "MOUNT_ROOT", mount_root)
+    monkeypatch.setattr(host_helper, "borg_env", lambda: {})
+    monkeypatch.setattr(host_helper, "_borg_candidates", lambda: ["/usr/bin/borg"])
+    monkeypatch.setattr(host_helper.os.path, "ismount", lambda path: True)
+    monkeypatch.setattr(host_helper, "_enable_metacopy", lambda: False)
+    spec = {
+        "archive": "auto_x",
+        "roots": [{"archive_path": "nope", "live_path": str(tmp_path / "l")}],
+    }
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps(spec)))
+    result = host_helper.cmd_mount_large_roots(None)
+
+    assert result["ok"] is False and "not a directory" in result["errors"][0]
+
+
+def test_unmount_large_roots_releases_overlays_and_archive_mounts(tmp_path, monkeypatch):
+    mounts = tmp_path / "mounts"
+    mounts.write_text(
+        "/dev/sda1 / ext4 rw 0 0\n"
+        "bbic-overlay /home/yunohost.app/immich overlay rw 0 0\n"
+        f"borgfs {tmp_path}/mnt/archives/auto_immich fuse.borgfs ro 0 0\n"
+        "tmpfs /run tmpfs rw 0 0\n"
+    )
+    unmounted = []
+
+    def fake_sh(cmd, **kwargs):
+        unmounted.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr(host_helper, "sh", fake_sh)
+    monkeypatch.setattr(host_helper, "MOUNTS_FILE", mounts)
+    monkeypatch.setattr(host_helper, "MOUNT_ROOT", tmp_path / "mnt")
+    result = host_helper.cmd_unmount_large_roots(None)
+
+    assert result["ok"]
+    assert "/home/yunohost.app/immich" in result["unmounted"]
+    assert any("auto_immich" in target for target in result["unmounted"])
+    assert all(cmd[0] == "umount" for cmd in unmounted)
