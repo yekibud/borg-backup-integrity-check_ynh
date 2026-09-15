@@ -238,6 +238,21 @@ class RunReport:
             return f"PASS WITH {n} WARNING{'S' if n != 1 else ''}"
         return overall
 
+    def email_subject(self, app_id: str, max_names: int = 3) -> str:
+        """Say what went wrong in the subject: on a phone that is all one sees of a report."""
+        failed = [c.label for c in self.components if c.status == FAIL]
+        warned = [c.label for c in self.components if c.status == WARN]
+        names = failed or warned
+        listed = ", ".join(names[:max_names])
+        if len(names) > max_names:
+            listed += f" +{len(names) - max_names}"
+        parts = [f"[{app_id}] {self.overall_line}"]
+        if listed:
+            parts.append(f": {listed}")
+        if self.backup_time:
+            parts.append(f" - backup {self.backup_time:%Y-%m-%d %H:%M}")
+        return "".join(parts)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,

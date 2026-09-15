@@ -38,6 +38,7 @@ from ..manifest.history import HistoryStore
 from ..manifest.models import BackupManifest
 from ..providers.base import CloudProvider, VMSpec, run_labels
 from ..providers.registry import create_provider
+from ..report.html import render_html
 from ..report.mail import send_report
 from ..report.models import (
     FAIL,
@@ -914,13 +915,13 @@ class IntegrityRun:
         if self.options.email:
             policy = str(self.config.report_on)
             if policy == "always" or self.report.overall != "PASS":
-                subject = (
-                    f"[{self.config.app_id}] {self.report.overall_line} - backup {self.report.backup_time:%Y-%m-%d %H:%M}"
-                    if self.report.backup_time
-                    else f"[{self.config.app_id}] {self.report.overall_line}"
-                )
                 try:
-                    send_report(self.config.report_recipient(), subject, render_report(self.report))
+                    send_report(
+                        self.config.report_recipient(),
+                        self.report.email_subject(self.config.app_id),
+                        render_report(self.report),
+                        html=render_html(self.report),
+                    )
                 except IntegrityCheckError as exc:
                     log.error("could not email the report: %s", exc)
                     self.report.warnings.append(f"report email failed: {exc}")

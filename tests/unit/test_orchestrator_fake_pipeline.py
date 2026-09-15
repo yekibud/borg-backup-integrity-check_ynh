@@ -394,7 +394,7 @@ def pipeline(tmp_path, monkeypatch, synthetic_app_listing, synthetic_app_layout)
     provider = FakeProvider()
     host_root = tmp_path / "host"
     agents: list[FakeAgent] = []
-    sent: list[tuple[str, str, str]] = []
+    sent: list[tuple[str, str, str, str | None]] = []
     state = {"fail_app": None}
 
     monkeypatch.setenv("BBIC_BORG_BINARY", "/bin/true")
@@ -410,7 +410,9 @@ def pipeline(tmp_path, monkeypatch, synthetic_app_listing, synthetic_app_layout)
         lambda ssh: agents.append(FakeAgent(ssh, host_root, state["fail_app"])) or agents[-1],
     )
     monkeypatch.setattr(
-        orch, "send_report", lambda to, subject, body: sent.append((to, subject, body))
+        orch,
+        "send_report",
+        lambda to, subject, body, html=None: sent.append((to, subject, body, html)),
     )
     monkeypatch.setattr(
         orch.RestoreHostBootstrap,
@@ -503,12 +505,11 @@ def test_full_pipeline_sampled_run_passes_and_cleans_up(pipeline, capsys):
     state = RunStateStore(cfg.paths.runs_dir).load(run.run_id)
     assert state.status == "finished" and state.cleanup_status == "done" and state.server_id is None
     assert "all temporary resources destroyed" in report.cleanup_status
-    # Email sent with the same content.
-    assert (
-        pipeline["sent"]
-        and pipeline["sent"][0][0] == "root"
-        and "BACKUP MANIFEST COMPARISON" in pipeline["sent"][0][2]
-    )
+    # Email sent with the same content, plus a phone-readable HTML alternative.
+    to, subject, plain, html = pipeline["sent"][0]
+    assert "filebox" in subject and subject.startswith("[borg-backup-integrity-check]")
+    assert html and html.startswith("<!doctype html>") and "Run summary" in html
+    assert pipeline["sent"] and to == "root" and "BACKUP MANIFEST COMPARISON" in plain
     # Safety: the borg app is never restored; skeleton dirs were requested for the sparse app restore.
     calls = pipeline["agents"][0].calls
     core_specs = [s for c, s in calls if c == "restore-core"]

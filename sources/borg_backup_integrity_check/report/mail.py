@@ -19,6 +19,7 @@ def send_report(
     body: str,
     sender: str | None = None,
     sendmail: str = "/usr/sbin/sendmail",
+    html: str | None = None,
 ) -> None:
     hostname = socket.getfqdn() or socket.gethostname()
     msg = EmailMessage()
@@ -29,6 +30,9 @@ def send_report(
     msg["Message-ID"] = make_msgid(domain=hostname)
     msg["Auto-Submitted"] = "auto-generated"
     msg.set_content(body)
+    if html:
+        # Phone clients rewrap plain text and destroy the aligned columns; they pick this instead.
+        msg.add_alternative(html, subtype="html")
     try:
         proc = subprocess.run(
             [sendmail, "-t", "-oi"],
