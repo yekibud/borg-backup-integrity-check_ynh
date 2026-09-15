@@ -180,6 +180,7 @@ class FakeAgent:
                     "error": "app restore script failed: db import error",
                     "log": "/var/log/yunohost/operations/20260914-201242-backup_restore_app.yml",
                     "log_text": "INFO starting\nERROR mysql: Access denied for user\n",
+                    "apt_reverted": ["removed /etc/apt/sources.list.d/jellyfin.list"],
                 }
             return {
                 "ok": True,
@@ -606,6 +607,9 @@ def test_pipeline_core_restore_failure_is_reported_and_still_cleans_up(pipeline)
     assert "app restore script failed" in kept  # and the restore output it was summarised from
     assert "20260914-201242-backup_restore_app.yml" in kept  # where it came from
     assert str(saved) in text and "WHY A RESTORE FAILED" in text
+    # The next app must not be judged on the repositories this failed restore left behind.
+    assert any("apt source/key file(s)" in note for note in filebox.notes)
+    assert "apt source/key file(s)" in text
 
 
 def test_pipeline_retain_keeps_host_and_reports_access(pipeline):

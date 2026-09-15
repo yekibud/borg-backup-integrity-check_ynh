@@ -20,7 +20,7 @@ from ..discovery.components import Component, components_from_layout
 from ..discovery.large_data import (
     LargeDataDiscovery,
     is_db_dump_item,
-    keep_small_files_in_large_roots,
+    keep_app_plumbing,
 )
 from ..discovery.profiles import ProfileRegistry
 from ..errors import (
@@ -268,13 +268,16 @@ class IntegrityRun:
                 component, iter_cached_listing(self.listings[component.archive.name])
             )
             if component.is_app:
-                kept = keep_small_files_in_large_roots(
-                    component, iter_cached_listing(self.listings[component.archive.name])
+                kept = keep_app_plumbing(
+                    component,
+                    self.aggregates[component.archive.name],
+                    iter_cached_listing(self.listings[component.archive.name]),
                 )
                 if kept:
+                    restored = [r for root in component.large_roots for r in root.keep_dirs]
                     component.notes.append(
-                        f"{kept} small file(s) inside the large data are restored too "
-                        "(the app's own restore script reads them)"
+                        "restored whole despite being inside the large data: "
+                        + ", ".join(sorted(restored) or ["(root-level files only)"])
                     )
 
     def _build_manifest_and_compare(self) -> None:

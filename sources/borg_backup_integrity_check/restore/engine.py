@@ -22,6 +22,7 @@ class CoreRestoreOutcome:
     log_path: str | None = None
     error: str | None = None
     log_text: str | None = None  # the restore host's operation log, fetched before it is destroyed
+    apt_reverted: list[str] = field(default_factory=list)  # leftovers undone after a failed restore
 
 
 class CoreRestoreEngine:
@@ -61,6 +62,7 @@ class CoreRestoreEngine:
                     log_path=outcome.log_path,
                     error=outcome.error,
                     log_text=outcome.log_text,
+                    apt_reverted=outcome.apt_reverted,
                 )
         return outcomes
 
@@ -124,6 +126,7 @@ class CoreRestoreEngine:
         if agg is not None:
             for child, _ in agg.children(root.archive_path):
                 skeleton.append({"path": child})
+        skeleton.extend({"path": path, "kind": "subtree"} for path in root.keep_dirs)
         skeleton.extend({"path": path, "kind": "file"} for path in root.keep_files)
         return {"archive_path": root.archive_path, "skeleton": skeleton}
 
@@ -149,6 +152,11 @@ class CoreRestoreEngine:
             )
         if outcome.log_path:
             report.operation_log = outcome.log_path
+        if outcome.apt_reverted:
+            report.notes.append(
+                f"{len(outcome.apt_reverted)} apt source/key file(s) this failed restore left "
+                "behind were undone, so the next app is not judged on this app's repositories"
+            )
 
     @staticmethod
     def skipped(report: ComponentReport, reason: str) -> None:
@@ -186,4 +194,5 @@ def _outcome(result: dict) -> CoreRestoreOutcome:
         log_path=result.get("log"),
         error=error,
         log_text=result.get("log_text"),
+        apt_reverted=result.get("apt_reverted") or [],
     )

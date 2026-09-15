@@ -12,7 +12,7 @@ from borg_backup_integrity_check.discovery.components import LargeRoot, componen
 from borg_backup_integrity_check.discovery.large_data import (
     LargeDataDiscovery,
     is_db_dump_item,
-    keep_small_files_in_large_roots,
+    keep_app_plumbing,
 )
 from borg_backup_integrity_check.discovery.profiles import ProfileRegistry, SamplingProfile
 
@@ -180,76 +180,93 @@ def test_layout_reads_main_domain(tmp_path):
     assert layout.main_domain == "example.org" and layout.system_parts == ["conf_ynh_settings"]
 
 
-# ---------------------------------------------------------- small files inside large data
+# ------------------------------------------------- what survives a large root's exclusion
 ROOT = "apps/immich/backup/home/yunohost.app/immich"
 
 
-def _immich_component(synthetic_app_layout, archive_ref, listing_root=ROOT):
+def _app_with_root(synthetic_app_layout, archive_ref, root=ROOT, app="immich"):
     synthetic_app_layout.apps = {}
-    synthetic_app_layout.info.apps = {"immich": {}}
-    comps = components_from_layout(archive_ref, "auto_immich", synthetic_app_layout)
-    comp = comps[0]
+    synthetic_app_layout.info.apps = {app: {}}
+    comp = components_from_layout(archive_ref, f"auto_{app}", synthetic_app_layout)[0]
     comp.large_roots = [
-        LargeRoot(
-            archive_path=listing_root, live_path="/home/yunohost.app/immich", origin="profile"
-        )
+        LargeRoot(archive_path=root, live_path=f"/home/yunohost.app/{app}", origin="profile")
     ]
     return comp
 
 
-def test_app_plumbing_inside_a_large_root_is_restored_but_payload_is_not(
+def test_restore_plumbing_directory_is_kept_whole_and_payload_is_not(
     synthetic_app_layout, archive_ref
 ):
-    """The failure this rule exists for: immich's restore script chowns a file in its data dir."""
-    comp = _immich_component(synthetic_app_layout, archive_ref)
-    items = [
-        make_item(f"{ROOT}/backups/restore_immich_db_backup.sh", 1200),
-        make_item(f"{ROOT}/.env", 300),
-        make_item(f"{ROOT}/library/meta/sidecar.json", 900),  # plumbing name, deeper
-        make_item(f"{ROOT}/upload/thumbs/ab/cd/x.jpeg", 150_000),  # payload, deep
-        make_item(f"{ROOT}/upload/upload/user/ab/big.jpg", 3_000_000),  # payload, big
-        make_item(f"{ROOT}/alice/files/holiday.pdf", 200_000),  # user payload, not plumbing
-        make_item(f"{ROOT}/backups/huge_dump.sql", 8 << 20),  # plumbing name but bulk-sized
+    """The failure this exists for: immich's restore script chowns a file in its data dir."""
+    comp = _app_with_root(synthetic_app_layout, archive_ref)
+    items = (
+        dir_items(f"{ROOT}/backups")
+        + dir_items(f"{ROOT}/upload/thumbs")
+        + [
+            make_item(f"{ROOT}/backups/restore_immich_db_backup.sh", 1200),
+            make_item(f"{ROOT}/backups/dump.sql", 2_000_000),
+            make_item(f"{ROOT}/.env", 300),
+            make_item(f"{ROOT}/upload/thumbs/ab/x.jpeg", 150_000),
+            make_item(f"{ROOT}/library.json", 2 << 20),  # root-level but not small
+        ]
+    )
+    kept = keep_app_plumbing(comp, DirectoryAggregates.build(items), items)
+    root = comp.large_roots[0]
+    assert kept == 2
+    assert root.keep_dirs == [f"{ROOT}/backups"]  # whole directory, dump included
+    assert root.keep_files == [f"{ROOT}/.env"]
+    assert root.keep_bytes == 2_001_500
+
+
+def test_a_state_directory_is_never_restored_in_part(synthetic_app_layout, archive_ref):
+    """forgejo died on a half-restored Bleve index; absent, it rebuilds the index itself."""
+    root = "apps/forgejo/backup/home/yunohost.app/forgejo"
+    comp = _app_with_root(synthetic_app_layout, archive_ref, root=root, app="forgejo")
+    items = dir_items(f"{root}/data/indexers/issues.bleve/store") + [
+        make_item(f"{root}/data/indexers/issues.bleve/index_meta.json", 200),
+        make_item(f"{root}/data/indexers/issues.bleve/store/root.bolt", 40_000_000),
     ]
-    kept = keep_small_files_in_large_roots(comp, items)
-    names = [p[len(ROOT) + 1 :] for p in comp.large_roots[0].keep_files]
-    assert kept == 3
-    assert names == [".env", "backups/restore_immich_db_backup.sh", "library/meta/sidecar.json"]
-    assert comp.large_roots[0].keep_bytes == 2400
+    assert keep_app_plumbing(comp, DirectoryAggregates.build(items), items) == 0
+    assert comp.large_roots[0].keep_dirs == [] and comp.large_roots[0].keep_files == []
+
+
+def test_a_plumbing_directory_too_big_to_be_plumbing_is_left_out(synthetic_app_layout, archive_ref):
+    comp = _app_with_root(synthetic_app_layout, archive_ref)
+    items = dir_items(f"{ROOT}/backups") + [
+        make_item(f"{ROOT}/backups/huge{i}.sql", 20 << 20) for i in range(5)
+    ]
+    assert keep_app_plumbing(comp, DirectoryAggregates.build(items), items) == 0
 
 
 def test_user_payload_of_the_synthetic_app_is_never_kept(
     synthetic_app_listing, synthetic_app_layout, archive_ref
 ):
-    comp = _immich_component(
-        synthetic_app_layout, archive_ref, "apps/filebox/backup/home/yunohost.app/filebox"
+    comp = _app_with_root(
+        synthetic_app_layout,
+        archive_ref,
+        root="apps/filebox/backup/home/yunohost.app/filebox",
+        app="filebox",
     )
-    assert keep_small_files_in_large_roots(comp, synthetic_app_listing) == 0
+    agg = DirectoryAggregates.build(synthetic_app_listing)
+    assert keep_app_plumbing(comp, agg, synthetic_app_listing) == 0
 
 
-def test_keepers_are_bounded_when_a_root_is_full_of_small_files(synthetic_app_layout, archive_ref):
-    comp = _immich_component(synthetic_app_layout, archive_ref)
-    items = [make_item(f"{ROOT}/conf/n{i}.json", 200_000) for i in range(5000)]
-    keep_small_files_in_large_roots(comp, items)
-    root = comp.large_roots[0]
-    assert len(root.keep_files) <= 2000 and root.keep_bytes <= 256 << 20
-
-
-def test_kept_files_are_costed_as_disk_but_not_counted_as_backup_size(
+def test_kept_plumbing_is_costed_as_disk_but_not_counted_as_backup_size(
     synthetic_app_layout, archive_ref
 ):
     """logical_size describes the backup; what we choose to restore must not inflate it."""
     from borg_backup_integrity_check.restore.planner import ComponentPlan, RestorePlan
 
-    comp = _immich_component(synthetic_app_layout, archive_ref)
+    comp = _app_with_root(synthetic_app_layout, archive_ref)
     comp.core_size = 1_000_000
     comp.large_roots[0].size = 59_000_000_000
     before = comp.logical_size
-    keep_small_files_in_large_roots(comp, [make_item(f"{ROOT}/backups/restore.sh", 1200)])
-    assert comp.logical_size == before  # the archive did not change
+    items = dir_items(f"{ROOT}/backups") + [make_item(f"{ROOT}/backups/restore.sh", 1200)]
+    keep_app_plumbing(comp, DirectoryAggregates.build(items), items)
+    assert comp.large_roots[0].keep_dirs and comp.logical_size == before
 
     plan = RestorePlan(mode="sampled")
     plan.apps.append(ComponentPlan(component=comp, restore_core=True, payload_mode="sampled"))
     with_keepers = plan.disk_estimate_bytes()
-    comp.large_roots[0].keep_files, comp.large_roots[0].keep_bytes = [], 0
-    assert with_keepers > plan.disk_estimate_bytes()  # but it does cost disk on the restore host
+    comp.large_roots[0].keep_dirs, comp.large_roots[0].keep_bytes = [], 0
+    assert with_keepers > plan.disk_estimate_bytes()

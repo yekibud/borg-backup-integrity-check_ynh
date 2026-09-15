@@ -11,16 +11,13 @@ Evidence sources, in order of trust:
 5. a size heuristic: a directory that dominates the component's size, contains
    many files and looks like user content rather than code or databases.
 
-Everything not under a large root is "core" and restored normally, plus the small
-files inside a large root that an app's restore script needs (see
-``keep_small_files_in_large_roots``).
+Everything not under a large root is "core" and restored normally, plus the plumbing
+inside a large root that an app's own restore script reads (see ``keep_app_plumbing``).
 """
 
 from __future__ import annotations
 
 import fnmatch
-import heapq
-import itertools
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -287,77 +284,67 @@ def is_db_dump_item(item) -> bool:
 
 
 # An app's restore script reads scripts, dumps and configuration that live *inside* its data
-# directory (immich chowns backups/restore_immich_db_backup.sh there). Excluding the whole root
-# makes those restores fail, so the app's own plumbing comes along - never user payload, which
-# always sits deeper, under per-user or per-object directories.
-KEEP_FILE_MAX_BYTES = 1 << 20
-KEEP_SHALLOW_DEPTH = 1  # the root itself and one directory down
-KEEP_PLUMBING_DEPTH = 3  # deeper only when the name says plumbing, not payload
-KEEP_FILES_PER_ROOT = 2000
+# directory (immich chowns backups/restore_immich_db_backup.sh there), so a little of the root
+# has to survive the exclusion. Two rules keep that from doing harm:
+#
+# * whole directories only - forgejo crashed on a half-restored Bleve index ("error parsing
+#   mapping JSON") that it recreates happily when the directory is absent entirely. A partial
+#   state directory is worse than no directory;
+# * only directories whose name says restore plumbing, small enough to be plumbing rather than
+#   payload. Everything else stays out, as it was.
+KEEP_FILE_MAX_BYTES = 1 << 20  # for files lying directly in the root: whole files, no half-state
+KEEP_DIR_MAX_BYTES = 64 << 20
+KEEP_DIR_MAX_FILES = 500
 KEEP_BYTES_PER_ROOT = 256 << 20
-PLUMBING_SUFFIXES = (
-    ".sh",
-    ".sql",
-    ".conf",
-    ".cfg",
-    ".ini",
-    ".env",
-    ".json",
-    ".yml",
-    ".yaml",
-    ".toml",
-    ".service",
+PLUMBING_DIR_NAMES = frozenset(
+    {
+        "backup",
+        "backups",
+        "bin",
+        "conf",
+        "config",
+        "db",
+        "dump",
+        "dumps",
+        "scripts",
+        "sql",
+    }
 )
 
 
-def _is_plumbing(path: str) -> bool:
-    name = path.rsplit("/", 1)[-1].lower()
-    return name.endswith(PLUMBING_SUFFIXES)
+def keep_app_plumbing(component: Component, agg: DirectoryAggregates, items: Iterable) -> int:
+    """Pick what of each large root is restored anyway; returns how many entries were kept.
 
-
-def keep_small_files_in_large_roots(component: Component, items: Iterable) -> int:
-    """Pick the small plumbing files of each large root; returns how many were kept in total.
-
-    Bounded in memory (a per-root heap of the best candidates) because a large root can hold
-    hundreds of thousands of small files - thumbnails, chunks - that must not all be kept.
+    ``LargeRoot.keep_dirs`` are restored whole (never partially), ``keep_files`` are single files
+    lying directly in the root.
     """
     roots = component.large_roots
     if not roots:
         return 0
-    heaps: dict[str, list] = {root.archive_path: [] for root in roots}
-    tie = itertools.count()
+    kept = 0
+    for root in roots:
+        budget = KEEP_BYTES_PER_ROOT
+        dirs: list[str] = []
+        for child, stats in sorted(agg.children(root.archive_path)):
+            if child.rsplit("/", 1)[-1].lower() not in PLUMBING_DIR_NAMES:
+                continue
+            if stats.size > KEEP_DIR_MAX_BYTES or stats.files > KEEP_DIR_MAX_FILES:
+                continue
+            if stats.size > budget:
+                continue
+            dirs.append(child)
+            budget -= stats.size
+            root.keep_bytes += stats.size
+        root.keep_dirs = dirs
+        kept += len(dirs)
+    prefixes = {root.archive_path: root for root in roots}
     for item in items:
         if not item.is_file or item.size > KEEP_FILE_MAX_BYTES:
             continue
-        for root_path, heap in heaps.items():
-            if not item.path.startswith(root_path + "/"):
-                continue
-            depth = item.path[len(root_path) + 1 :].count("/")
-            if depth <= KEEP_SHALLOW_DEPTH or (
-                depth <= KEEP_PLUMBING_DEPTH and _is_plumbing(item.path)
-            ):
-                # The heap's root is the worst candidate (deepest, then largest), so it is the
-                # one to drop once the budget is full.
-                key = (-depth, -item.size)
-                entry = (key, next(tie), item.path, item.size)
-                if len(heap) < KEEP_FILES_PER_ROOT:
-                    heapq.heappush(heap, entry)
-                elif key > heap[0][0]:
-                    heapq.heapreplace(heap, entry)
-            break
-    kept = 0
-    for root in roots:
-        chosen: list[str] = []
-        total = 0
-        shallowest_first = sorted(
-            heaps[root.archive_path], key=lambda e: (-e[0][0], -e[0][1], e[2])
-        )
-        for _key, _tie, path, size in shallowest_first:
-            if total + size > KEEP_BYTES_PER_ROOT:
-                continue
-            chosen.append(path)
-            total += size
-        root.keep_files = sorted(chosen)
-        root.keep_bytes = total
-        kept += len(chosen)
+        root = prefixes.get(item.path.rsplit("/", 1)[0])
+        if root is None or root.keep_bytes + item.size > KEEP_BYTES_PER_ROOT:
+            continue
+        root.keep_files.append(item.path)
+        root.keep_bytes += item.size
+        kept += 1
     return kept

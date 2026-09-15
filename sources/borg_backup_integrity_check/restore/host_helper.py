@@ -531,19 +531,22 @@ def cmd_restore_core(ns: argparse.Namespace) -> dict:
         args += ["--apps"] + list(targets["apps"])
     if spec.get("force", True):
         args.append("--force")
+    apt_before = apt_source_snapshot()
     rc, data, err = yunohost_json(args, timeout=int(spec.get("timeout", 3 * 3600)))
     if ns.ssh_port or spec.get("ssh_port"):
         reopen_port(int(ns.ssh_port or spec.get("ssh_port")))
     result.update({"ok": rc == 0, "rc": rc, "results": data, "log_tail": err[-3000:]})
     result["log"] = _restore_operation_log(targets, err)
-    if rc != 0 or any(
+    failed = rc != 0 or any(
         outcome not in ("Success", "Warning")
         for section in (data or {}).values()
         if isinstance(section, dict)
         for outcome in section.values()
-    ):
+    )
+    if failed:
         # The restore host is destroyed minutes from now; the only chance to keep the reason.
         result["log_text"] = _operation_log_text(result["log"])
+        result["apt_reverted"] = revert_apt_sources(apt_before)
     for extra in (tar_path, ARCHIVES_DIR / f"{name}.info.json"):
         extra.unlink(missing_ok=True)
     return result
@@ -679,15 +682,65 @@ def cmd_extract_payload(ns: argparse.Namespace) -> dict:
     return {"ok": all(r["error"] is None for r in results), "roots": results}
 
 
+APT_SOURCE_PATHS = (
+    Path("/etc/apt/sources.list"),
+    Path("/etc/apt/sources.list.d"),
+    Path("/etc/apt/preferences.d"),
+    Path("/etc/apt/keyrings"),
+    Path("/etc/apt/trusted.gpg.d"),
+)
+
+
+def apt_source_snapshot(paths: tuple[Path, ...] = APT_SOURCE_PATHS) -> dict[str, bytes]:
+    """Every apt source, pin and key file, by content: a file set, so any format is covered."""
+    snapshot: dict[str, bytes] = {}
+    for entry in paths:
+        files = sorted(entry.iterdir()) if entry.is_dir() else [entry]
+        for path in files:
+            if path.is_file():
+                with contextlib.suppress(OSError):
+                    snapshot[str(path)] = path.read_bytes()
+    return snapshot
+
+
+def revert_apt_sources(
+    before: dict[str, bytes], paths: tuple[Path, ...] = APT_SOURCE_PATHS
+) -> list[str]:
+    """Undo what a failed app restore left behind in apt's source directories.
+
+    An app that adds a third-party repository and then fails leaves the repository configured.
+    The next app's ``_ynh_apt update --error-on=any`` reads all of sources.list.d, so one broken
+    mirror in a failed app's repository fails the next app too (immich -> jitsi, run ...-173222).
+    A successful restore keeps its repositories: production has them as well.
+    """
+    changed: list[str] = []
+    after = apt_source_snapshot(paths)
+    for path, content in after.items():
+        if path not in before:
+            with contextlib.suppress(OSError):
+                Path(path).unlink()
+                changed.append(f"removed {path}")
+        elif before[path] != content:
+            with contextlib.suppress(OSError):
+                Path(path).write_bytes(before[path])
+                changed.append(f"reverted {path}")
+    for path, content in before.items():
+        if path not in after:
+            with contextlib.suppress(OSError):
+                Path(path).write_bytes(content)
+                changed.append(f"restored {path}")
+    return changed
+
+
 def materialise_skeleton(work: Path, large_roots: list[dict]) -> None:
     """Recreate the excluded roots' directories with their archive ownership (borg may skip them).
 
-    Entries marked ``kind: file`` are the small plumbing files the patterns did extract - making
-    a directory of their path would shadow the file the app's restore script is about to read.
+    Entries marked ``kind: file`` or ``kind: subtree`` were extracted by the patterns with their
+    own metadata - making a directory of their path would shadow what was extracted.
     """
     for root in large_roots:
         for entry in root.get("skeleton", []):
-            if entry.get("kind") == "file":
+            if entry.get("kind") in ("file", "subtree"):
                 continue
             path = work / entry["path"]
             path.mkdir(parents=True, exist_ok=True)
@@ -703,7 +756,8 @@ def core_patterns(large_roots: list[dict]) -> list[str]:
     patterns: list[str] = []
     for root in large_roots:
         for entry in root.get("skeleton", []):
-            patterns.append(f"+ pf:{entry['path']}")
+            prefix = "pp" if entry.get("kind") == "subtree" else "pf"
+            patterns.append(f"+ {prefix}:{entry['path']}")
         patterns.append(f"- pp:{root['archive_path']}")
     return patterns
 

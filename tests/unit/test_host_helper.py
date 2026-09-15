@@ -159,21 +159,20 @@ def test_core_patterns_keep_plumbing_files_out_of_the_exclusion():
                 "archive_path": root,
                 "skeleton": [
                     {"path": root},
-                    {"path": f"{root}/backups"},
-                    {"path": f"{root}/backups/restore_immich_db_backup.sh", "kind": "file"},
+                    {"path": f"{root}/upload"},
+                    {"path": f"{root}/backups", "kind": "subtree"},
+                    {"path": f"{root}/.env", "kind": "file"},
                 ],
             }
         ]
     )
     assert patterns == [
         f"+ pf:{root}",
-        f"+ pf:{root}/backups",
-        f"+ pf:{root}/backups/restore_immich_db_backup.sh",
+        f"+ pf:{root}/upload",
+        f"+ pp:{root}/backups",
+        f"+ pf:{root}/.env",
         f"- pp:{root}",
     ]
-    assert patterns.index(f"+ pf:{root}/backups/restore_immich_db_backup.sh") < patterns.index(
-        f"- pp:{root}"
-    )
 
 
 def test_skeleton_file_entries_are_not_recreated_as_directories(tmp_path):
@@ -191,10 +190,76 @@ def test_skeleton_file_entries_are_not_recreated_as_directories(tmp_path):
                     {"path": "root"},
                     {"path": "root/backups"},
                     {"path": "root/backups/restore.sh", "kind": "file"},
+                    {"path": "root/conf", "kind": "subtree"},
                     {"path": "root/upload"},
                 ],
             }
         ],
     )
     assert kept.is_file() and kept.read_text() == "#!/bin/bash\n"
-    assert (work / "root/upload").is_dir()  # directory entries are still recreated
+    assert not (work / "root/conf").exists()  # borg extracted the subtree, or it is not there
+    assert (work / "root/upload").is_dir()  # plain directory entries are still recreated
+
+
+def _apt_dirs(tmp_path):
+    """The four directories plus sources.list itself, in the order the helper reads them."""
+    dirs = tuple(
+        tmp_path / d for d in ("sources.list.d", "preferences.d", "keyrings", "trusted.gpg.d")
+    )
+    for d in dirs:
+        d.mkdir()
+    return dirs + (tmp_path / "sources.list",)
+
+
+def test_a_failed_restore_stops_poisoning_the_next_app(tmp_path):
+    """immich's failed restore left jellyfin.list behind; jitsi then died on that repo's mirror."""
+    dirs = _apt_dirs(tmp_path)
+    (dirs[0] / "yunohost.list").write_text(
+        "deb https://forge.yunohost.org/debian bookworm stable\n"
+    )
+    before = host_helper.apt_source_snapshot(dirs)
+
+    (dirs[0] / "jellyfin.list").write_text("deb https://repo.jellyfin.org/debian bookworm main\n")
+    (dirs[1] / "jellyfin.pref").write_text("Package: *\nPin: origin repo.jellyfin.org\n")
+    (dirs[2] / "jellyfin.gpg").write_bytes(b"\x99\x01binary key")
+    (dirs[0] / "yunohost.list").write_text(
+        "deb https://forge.yunohost.org/debian bookworm edited\n"
+    )
+
+    changed = host_helper.revert_apt_sources(before, dirs)
+
+    assert not (dirs[0] / "jellyfin.list").exists()
+    assert not (dirs[1] / "jellyfin.pref").exists()
+    assert not (dirs[2] / "jellyfin.gpg").exists()
+    assert "bookworm stable" in (dirs[0] / "yunohost.list").read_text()  # edit undone
+    assert len(changed) == 4
+
+
+def test_a_source_file_the_restore_deleted_comes_back(tmp_path):
+    dirs = _apt_dirs(tmp_path)
+    (dirs[0] / "sury.list").write_text("deb https://packages.sury.org/php bookworm main\n")
+    before = host_helper.apt_source_snapshot(dirs)
+    (dirs[0] / "sury.list").unlink()
+
+    assert host_helper.revert_apt_sources(before, dirs) == [f"restored {dirs[0] / 'sury.list'}"]
+    assert (dirs[0] / "sury.list").read_text().startswith("deb https://packages.sury.org")
+
+
+def test_an_edit_to_sources_list_itself_is_undone(tmp_path):
+    dirs = _apt_dirs(tmp_path)
+    sources_list = dirs[-1]
+    sources_list.write_text("deb http://deb.debian.org/debian bookworm main\n")
+    before = host_helper.apt_source_snapshot(dirs)
+    sources_list.write_text("deb http://deb.debian.org/debian bookworm main\ndeb http://x/ y z\n")
+
+    assert host_helper.revert_apt_sources(before, dirs) == [f"reverted {sources_list}"]
+    assert sources_list.read_text() == "deb http://deb.debian.org/debian bookworm main\n"
+
+
+def test_nothing_is_touched_when_the_restore_added_nothing(tmp_path):
+    dirs = _apt_dirs(tmp_path)
+    (dirs[0] / "yunohost.sources").write_text("Types: deb\nURIs: https://forge.yunohost.org\n")
+    before = host_helper.apt_source_snapshot(dirs)
+
+    assert host_helper.revert_apt_sources(before, dirs) == []
+    assert (dirs[0] / "yunohost.sources").exists()  # deb822 files are covered like any other

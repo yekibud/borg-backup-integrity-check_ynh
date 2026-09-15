@@ -27,9 +27,8 @@ class LargeRoot:
     size: int = 0
     files: int = 0
     label: str | None = None
-    keep_files: list[str] = field(
-        default_factory=list
-    )  # small files restored despite the exclusion
+    keep_dirs: list[str] = field(default_factory=list)  # restored whole despite the exclusion
+    keep_files: list[str] = field(default_factory=list)  # single files directly in the root
     keep_bytes: int = 0
 
     def contains(self, archive_path: str) -> bool:

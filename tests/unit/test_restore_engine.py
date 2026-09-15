@@ -26,8 +26,9 @@ def test_skeleton_carries_directories_and_the_kept_plumbing_files(archive_ref):
             archive_path=ROOT,
             live_path="/home/yunohost.app/immich",
             origin="profile",
-            keep_files=[f"{ROOT}/backups/restore_immich_db_backup.sh"],
-            keep_bytes=1200,
+            keep_dirs=[f"{ROOT}/backups"],
+            keep_files=[f"{ROOT}/.env"],
+            keep_bytes=1500,
         )
     ]
     engine = CoreRestoreEngine(
@@ -35,11 +36,13 @@ def test_skeleton_carries_directories_and_the_kept_plumbing_files(archive_ref):
     )
     skeleton = engine._skeleton(comp, comp.large_roots[0])["skeleton"]
 
-    directories = [e["path"] for e in skeleton if e.get("kind") != "file"]
-    files = [e["path"] for e in skeleton if e.get("kind") == "file"]
+    directories = [e["path"] for e in skeleton if "kind" not in e]
     assert ROOT in directories and f"{ROOT}/upload" in directories
-    assert files == [f"{ROOT}/backups/restore_immich_db_backup.sh"]
+    assert [e["path"] for e in skeleton if e.get("kind") == "subtree"] == [f"{ROOT}/backups"]
+    assert [e["path"] for e in skeleton if e.get("kind") == "file"] == [f"{ROOT}/.env"]
     # And the host turns that into borg patterns that survive the root's exclusion.
     patterns = core_patterns([engine._skeleton(comp, comp.large_roots[0])])
     assert patterns[-1] == f"- pp:{ROOT}"
-    assert f"+ pf:{ROOT}/backups/restore_immich_db_backup.sh" in patterns[:-1]
+    assert f"+ pp:{ROOT}/backups" in patterns[:-1]  # prefix: the whole directory
+    assert f"+ pf:{ROOT}/.env" in patterns[:-1]  # full path: exactly that file
+    assert f"+ pf:{ROOT}" in patterns[:-1]
