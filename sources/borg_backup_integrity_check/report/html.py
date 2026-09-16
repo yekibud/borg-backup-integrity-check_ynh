@@ -237,6 +237,8 @@ def render_html(report: RunReport) -> str:
         parts.append(
             f'<div style="{CARD}"><div style="font-weight:600;margin:0 0 6px">Not checked '
             f"(excluded by configuration)</div>"
+            f'<div style="{MUTED};margin:0 0 8px">Their archives are still verified by the '
+            f"Borg-level checks and the manifest comparison above; only the restore is skipped.</div>"
             f'<table style="width:100%;border-collapse:collapse">{rows}</table></div>'
         )
     if report.retained_host:

@@ -431,6 +431,7 @@ class IntegrityRun:
             self.options.components or self.config.components_list,
             self.config.never_restore,
             min_memory_mb=int(self.config.vm_min_memory_mb),
+            backup_tooling=frozenset({"borg", "borgserver", "borgwarehouse", self.config.app_id}),
         )
         for comp_id, reason in self.plan.skipped:
             self.report.infos.append(f"{comp_id}: {reason}")

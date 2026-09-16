@@ -243,7 +243,10 @@ def test_planner_orders_and_sizes(synthetic_app_listing, synthetic_app_layout, a
     assert [p.component.id for p in plan.apps] == ["filebox"]
     assert [p.component.id for p in plan.system_data] == ["data_mail"]
     assert ("conf_manually_modified_files", "skipped by policy") in plan.skipped
-    assert any(s[0] == "borg" for s in plan.skipped)
+    reasons = dict(plan.skipped)
+    assert "repository credentials" in reasons["borg"], "say why backup tooling is never restored"
+    filebox_excluded = build_plan(comps, samples, "sampled", ["all"], {"filebox"})
+    assert "Apps never restored" in dict(filebox_excluded.skipped)["filebox"]
     assert plan.apps[0].payload_mode == "sampled" and plan.system_data[0].restore_core is False
     assert plan.required_disk_gb() >= 8 + 3
     full = build_plan(comps, samples, "full", ["filebox"], set())

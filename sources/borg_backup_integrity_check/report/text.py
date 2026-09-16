@@ -97,8 +97,12 @@ def render_report(report: RunReport) -> str:
         _saved_logs_block(report, add)
     if report.excluded:
         _section(add, "NOT CHECKED (excluded by configuration)")
+        add("Their archives are still verified by the Borg-level checks and the manifest")
+        add("comparison above; only the restore is skipped.")
+        add("")
         for comp_id, reason in report.excluded:
-            add(f"  {comp_id[:24]:<26}{reason}")
+            for line in _wrapped(f"  {comp_id[:24]:<26}{reason}", 28):
+                add(line)
     if any(c.operation_log for c in report.components):
         _section(add, "RESTORE OPERATION LOGS (on the restore server, now destroyed)")
         _operation_logs_block(report, add)

@@ -78,6 +78,7 @@ def build_plan(
     never_restore: set[str],
     skip_system_parts: tuple[str, ...] = SYSTEM_PARTS_SKIPPED_BY_DEFAULT,
     min_memory_mb: int = 4096,
+    backup_tooling: frozenset[str] = frozenset({"borg", "borgserver", "borgwarehouse"}),
 ) -> RestorePlan:
     plan = RestorePlan(mode=mode, min_memory_mb=min_memory_mb)
     select_all = "all" in selected
@@ -85,7 +86,15 @@ def build_plan(
         if comp.is_app:
             manifest_id = comp.app.manifest_id if comp.app else comp.id
             if comp.id in never_restore or manifest_id in never_restore:
-                plan.skipped.append((comp.id, "excluded by configuration (never restored)"))
+                # Two different reasons land here, and the report should not conflate them.
+                if comp.id in backup_tooling or manifest_id in backup_tooling:
+                    reason = (
+                        "backup tooling: restoring it on the test server would hand it your "
+                        "repository credentials and cloud token"
+                    )
+                else:
+                    reason = "excluded by configuration ('Apps never restored on the test server')"
+                plan.skipped.append((comp.id, reason))
                 continue
             if not select_all and comp.id not in selected and manifest_id not in selected:
                 plan.skipped.append((comp.id, "not selected"))

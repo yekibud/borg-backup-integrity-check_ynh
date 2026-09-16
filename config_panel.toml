@@ -543,6 +543,12 @@ name.fr = "Avancé"
         type = "boolean"
         default = true
 
+        [advanced.main.never_restore_notice]
+        type = "alert"
+        style = "info"
+        ask.en = "**Keep `borg`, `borgserver` and this app in the list below.** Restored on the disposable test server they would hold your repository credentials and cloud token, and could write into your real backups. Add applications here when they cannot be restored on a clean machine (see doc/APP_COMPATIBILITY.md): their archives are still verified by the Borg-level checks and the manifest comparison, only the restore is skipped, and the report lists them under *not checked*."
+        ask.fr = "**Conservez `borg`, `borgserver` et cette application dans la liste ci-dessous.** Restaurées sur le serveur de test jetable, elles disposeraient de vos identifiants de dépôt et de votre jeton cloud, et pourraient écrire dans vos vraies sauvegardes. Ajoutez ici les applications qui ne peuvent pas être restaurées sur une machine vierge (voir doc/APP_COMPATIBILITY.md) : leurs archives restent vérifiées par les contrôles Borg et la comparaison de manifeste, seule la restauration est ignorée."
+
         [advanced.main.never_restore_apps]
         ask.en = "Apps never restored on the test server"
         ask.fr = "Applications jamais restaurées sur le serveur de test"
