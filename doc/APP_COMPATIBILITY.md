@@ -55,6 +55,8 @@ mail, file storage), then places the newest objects back. An application package
    but only up to a budget;
 3. it does not fail on files it created itself in its data directory (immich's restore chowns
    `backups/restore_immich_db_backup.sh` unconditionally, which is the failure mode to avoid);
+   storage sentinels such as immich's `.immich` or Nextcloud's `.ocdata` are restored as long
+   as they sit at the top of the data directory or of one of its folders;
 4. it can start without its bulk data - returning 5xx until the data is there is fine and is
    reported as a warning, not a failure.
 

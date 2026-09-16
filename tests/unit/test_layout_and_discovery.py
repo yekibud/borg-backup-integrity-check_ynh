@@ -287,3 +287,24 @@ def test_kept_plumbing_is_costed_as_disk_but_not_counted_as_backup_size(
     with_keepers = plan.disk_estimate_bytes()
     comp.large_roots[0].keep_dirs, comp.large_roots[0].keep_bytes = [], 0
     assert with_keepers > plan.disk_estimate_bytes()
+
+
+def test_storage_markers_inside_excluded_data_survive(synthetic_app_layout, archive_ref):
+    """immich refuses to start when .immich is missing from a media folder it can otherwise see."""
+    comp = _app_with_root(synthetic_app_layout, archive_ref)
+    items = (
+        dir_items(f"{ROOT}/encoded-video")
+        + dir_items(f"{ROOT}/library/alice")
+        + [
+            make_item(f"{ROOT}/.immich", 0),
+            make_item(f"{ROOT}/encoded-video/.immich", 0),
+            make_item(f"{ROOT}/library/alice/IMG_1.jpg", 3_000_000),
+            make_item(f"{ROOT}/library/alice/.thumbnail_cache", 10),
+        ]
+    )
+    keep_app_plumbing(comp, DirectoryAggregates.build(items), items)
+    kept = comp.large_roots[0].keep_files
+
+    assert f"{ROOT}/.immich" in kept and f"{ROOT}/encoded-video/.immich" in kept
+    assert f"{ROOT}/library/alice/IMG_1.jpg" not in kept, "the payload itself stays out"
+    assert f"{ROOT}/library/alice/.thumbnail_cache" not in kept, "deep dotfiles are user data"

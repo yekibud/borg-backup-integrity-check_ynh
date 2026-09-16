@@ -296,6 +296,11 @@ KEEP_FILE_MAX_BYTES = 1 << 20  # for files lying directly in the root: whole fil
 KEEP_DIR_MAX_BYTES = 64 << 20
 KEEP_DIR_MAX_FILES = 500
 KEEP_BYTES_PER_ROOT = 256 << 20
+# Hidden sentinels an app writes into its data directories to prove the storage is mounted
+# (immich's .immich in every media folder, Nextcloud's .ocdata): tiny, and the app refuses to
+# start without them.
+MARKER_MAX_BYTES = 4 << 10
+MARKER_MAX_FILES = 200
 PLUMBING_DIR_NAMES = frozenset(
     {
         "backup",
@@ -344,11 +349,26 @@ def keep_app_plumbing(component: Component, agg: DirectoryAggregates, items: Ite
         root.keep_dirs = dirs
         kept += len(dirs)
     prefixes = {root.archive_path: root for root in roots}
+    markers: dict[str, int] = {}
     for item in items:
-        if not item.is_file or item.size > KEEP_FILE_MAX_BYTES:
+        if not item.is_file:
             continue
-        parent = item.path.rsplit("/", 1)[0]
+        parent, _, name = item.path.rpartition("/")
         root = prefixes.get(parent) or oversized.get(parent)
+        if root is not None:
+            if item.size > KEEP_FILE_MAX_BYTES:
+                continue
+        elif name.startswith(".") and item.size <= MARKER_MAX_BYTES:
+            root = next((r for r in roots if r.contains(item.path)), None)
+            if root is not None:
+                # Only at the top of the root or of one of its folders: deeper dotfiles are user
+                # data (a home directory is full of them), not storage sentinels.
+                if item.path[len(root.archive_path) + 1 :].count("/") > 1:
+                    continue
+                seen = markers.get(root.archive_path, 0)
+                if seen >= MARKER_MAX_FILES:
+                    continue
+                markers[root.archive_path] = seen + 1
         if root is None or root.keep_bytes + item.size > KEEP_BYTES_PER_ROOT:
             continue
         root.keep_files.append(item.path)
