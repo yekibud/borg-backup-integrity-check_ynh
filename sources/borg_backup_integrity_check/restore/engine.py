@@ -94,31 +94,6 @@ class CoreRestoreEngine:
         )
         return result.get("actions", [])
 
-    # -------------------------------------------------------- large data
-    def mount_large_roots(self, cp: ComponentPlan) -> dict:
-        """Serve a component's large data from the repository instead of extracting it."""
-        comp = cp.component
-        roots = [
-            {"archive_path": root.archive_path, "live_path": root.live_path}
-            for root in comp.large_roots
-            if root.live_path
-        ]
-        if not roots:
-            return {"ok": False, "mounted": [], "errors": ["no large root with a known live path"]}
-        return self.agent.call(
-            "mount-large-roots",
-            spec={"archive": comp.archive.name, "roots": roots},
-            timeout=1800,
-        )
-
-    def restart_services(self, app: str) -> list[str]:
-        result = self.agent.call("restart-services", args=["--app", app], timeout=900)
-        return result.get("restarted", [])
-
-    def unmount_large_roots(self) -> list[str]:
-        """Release every mount: an open archive mount holds a lock on the production repository."""
-        return self.agent.call("unmount-large-roots", timeout=900).get("unmounted", [])
-
     # ---------------------------------------------------------------- apps
     def restore_app(self, cp: ComponentPlan) -> CoreRestoreOutcome:
         comp = cp.component

@@ -317,3 +317,22 @@ def test_http_failure_is_warning_in_sampled_mode_but_fail_in_full():
         {"http": {"code": 0, "url": "u"}}, dead, None, sampled=True
     )
     assert dead.check("HTTP health").status == "WARN"
+
+
+def test_dependency_failures_are_named_as_such_and_exclusions_are_shown():
+    report = RunReport(run_id="r", mode="sampled", started_at=T0, backup_time=T0)
+    apt = ComponentReport(id="synapse", label="synapse", kind="app")
+    apt.add_check(
+        "Core/configuration", FAIL, "provision_or_update failed for apt : unmet dependencies"
+    )
+    apt.finalize()
+    data = ComponentReport(id="filebox", label="filebox", kind="app")
+    data.add_check("Core/configuration", FAIL, "could not read the archive")
+    data.finalize()
+    report.components += [apt, data]
+    report.excluded.append(("jitsi", "excluded by configuration (never restored)"))
+    text = render_report(report)
+
+    assert "synapse" in text and "dependencies" in text
+    assert "filebox" in text and "core restore" in text
+    assert "NOT CHECKED (excluded by configuration)" in text and "jitsi" in text

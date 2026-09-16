@@ -10,3 +10,9 @@ For every check it:
 * e-mails a clear plain-text report and destroys the temporary server.
 
 A conventional complete restore (`full` mode) is available for occasional deeper tests.
+
+Not every application survives a restore onto a clean machine - usually because its own packaging
+cannot reinstall its dependencies there. [doc/APP_COMPATIBILITY.md](doc/APP_COMPATIBILITY.md) lists
+what has been verified, which applications are known not to be restorable (and where to report them),
+and what a package needs to do to work with sampled checks. Applications in that state can be
+excluded from checks in the configuration panel, and appear in the report as "not checked".

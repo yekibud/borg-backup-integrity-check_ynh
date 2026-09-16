@@ -28,6 +28,16 @@ CHECK_KINDS = {
     "Database restore": "database",
     "Mail server access": "mail",
 }
+# A restore that dies provisioning packages is a different problem from a restore that dies on
+# the backup's content: it fails the same way on any clean machine, backup or no backup.
+DEPENDENCY_MARKERS = (
+    "provision_or_update failed",
+    "apt dependencies",
+    "ynh-deps",
+    "command not found",
+    "dpkg",
+    "unmet dependencies",
+)
 LABEL_COL = 19
 KIND_COL = 15
 
@@ -85,6 +95,10 @@ def render_report(report: RunReport) -> str:
     if any(c.saved_log for c in report.components):
         _section(add, "WHY A RESTORE FAILED (kept from the restore server)")
         _saved_logs_block(report, add)
+    if report.excluded:
+        _section(add, "NOT CHECKED (excluded by configuration)")
+        for comp_id, reason in report.excluded:
+            add(f"  {comp_id[:24]:<26}{reason}")
     if any(c.operation_log for c in report.components):
         _section(add, "RESTORE OPERATION LOGS (on the restore server, now destroyed)")
         _operation_logs_block(report, add)
@@ -132,7 +146,7 @@ def _headline_items(
     failures += [(a.component or "backup", "manifest", a.message) for a in report.anomaly_errors]
     for component in report.components:
         for check in component.checks:
-            kind = CHECK_KINDS.get(check.name, check.name.lower())
+            kind = failure_kind(check)
             if check.status == FAIL:
                 failures.append((component.label, kind, check.detail or "failed"))
             elif check.status == WARN:
@@ -148,6 +162,15 @@ def _headline_items(
     attention += [(a.component or "backup", "manifest", a.message) for a in report.anomaly_warnings]
     attention += [("run", "warning", warning) for warning in report.warnings]
     return failures, attention
+
+
+def failure_kind(check) -> str:
+    """What kind of problem a failed check is, for the "what failed" list."""
+    kind = CHECK_KINDS.get(check.name, check.name.lower())
+    detail = (check.detail or "").lower()
+    if kind == "core restore" and any(marker in detail for marker in DEPENDENCY_MARKERS):
+        return "dependencies"
+    return kind
 
 
 def _headline_rows(label: str, kind: str, detail: str) -> list[str]:

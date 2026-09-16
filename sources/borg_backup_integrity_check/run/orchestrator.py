@@ -106,7 +106,6 @@ class IntegrityRun:
         self.listings: dict[str, Path] = {}
         self.components: list[Component] = []
         self.samples: dict[str, list[RootSample]] = {}
-        self.mounted: dict[str, list[str]] = {}
         self.plan: RestorePlan | None = None
         self.agent: HostAgent | None = None
         self.profiles = ProfileRegistry(
@@ -435,6 +434,7 @@ class IntegrityRun:
         )
         for comp_id, reason in self.plan.skipped:
             self.report.infos.append(f"{comp_id}: {reason}")
+            self.report.excluded.append((comp_id, reason))
         self.progress.note(self.plan.summary())
         self.provider = create_provider(
             provider_name, self.config.credentials(), self.config.provider_settings
@@ -617,19 +617,6 @@ class IntegrityRun:
                     "The upstream Borg app could not be installed on the restore server "
                     "(the plain Borg client installed during bootstrap is used instead)."
                 )
-        # Ancestors first: /home has to be mounted before /home/yunohost.app/<app> nests on it.
-        system_data_reports = {}
-        for cp in self.plan.system_data:
-            comp = cp.component
-            report = ComponentReport(
-                id=comp.id,
-                label=comp.label,
-                kind="system_data",
-                sample_target=int(self.config.sample_size),
-                large_roots=[r.archive_path for r in comp.large_roots],
-            )
-            system_data_reports[comp.id] = report
-            self._mount_large_data(engine, cp, report)
         for cp in self.plan.apps:
             self._check_interrupt()
             comp = cp.component
@@ -644,53 +631,19 @@ class IntegrityRun:
             report.notes.extend(comp.notes)
             outcome = engine.restore_app(cp)
             engine.apply_outcome(report, outcome)
-            if outcome.ok:
-                # Only now: during the restore the live path must not be a mount point, or
-                # ynh_restore fails moving it aside ("Device or resource busy").
-                self._mount_large_data(engine, cp, report)
             self._save_restore_log(report, outcome)
             self.report.components.append(report)
         for cp in self.plan.system_data:
-            self.report.components.append(system_data_reports[cp.component.id])
-
-    def _mount_large_data(self, engine, cp, report: ComponentReport) -> None:
-        """Mount the component's bulk data from the archive instead of extracting a sample of it.
-
-        Falls back to sampled extraction (with a warning) whenever the host cannot mount, so a
-        restore host without FUSE still produces a report.
-        """
-        if str(self.config.large_data_mode) != "mount" or not cp.component.large_roots:
-            return
-        if cp.payload_mode == "full":
-            # A full check claims the data was really restored; that must not be a read-through mount.
-            return
-        result = engine.mount_large_roots(cp)
-        mounted = result.get("mounted") or []
-        if mounted:
-            self.mounted[cp.component.id] = mounted
-            if cp.component.is_app:
-                engine.restart_services(cp.component.id)
-            report.notes.append(
-                f"large data served read-only from the archive ({len(mounted)} root(s) mounted"
-                + ("" if result.get("metacopy") else ", without metacopy")
-                + ")"
+            comp = cp.component
+            self.report.components.append(
+                ComponentReport(
+                    id=comp.id,
+                    label=comp.label,
+                    kind="system_data",
+                    sample_target=int(self.config.sample_size),
+                    large_roots=[r.archive_path for r in comp.large_roots],
+                )
             )
-        for error in result.get("errors") or ([result.get("error")] if result.get("error") else []):
-            self.report.warnings.append(
-                f"{cp.component.label}: could not mount large data ({error}); "
-                "falling back to sampled extraction"
-            )
-
-    def _unmount_large_data(self) -> None:
-        """Always release the mounts: they hold a lock on the production repository."""
-        if not self.mounted or self.agent is None:
-            return
-        try:
-            released = self.agent.call("unmount-large-roots", timeout=900).get("unmounted", [])
-            self.report.infos.append(f"released {len(released)} large-data mount(s)")
-        except IntegrityCheckError as exc:
-            self.report.warnings.append(f"could not release the large-data mounts: {exc}")
-        self.mounted.clear()
 
     def _save_restore_log(self, report: ComponentReport, outcome: CoreRestoreOutcome) -> None:
         """Keep a failed restore's own words: the host that holds them is destroyed minutes later."""
@@ -751,7 +704,7 @@ class IntegrityRun:
                 f"{cp.component.label}: retrieving {objects} object(s)"
                 + (" and the full data set" if cp.payload_mode == "full" else "")
             )
-            outcome = retriever.retrieve(cp, mounted=bool(self.mounted.get(cp.component.id)))
+            outcome = retriever.retrieve(cp)
             report.samples.extend(outcome.samples)
             for error in outcome.errors:
                 report.add_check("Payload retrieval", FAIL, error[:300])
@@ -861,7 +814,6 @@ class IntegrityRun:
     def _stage_cleanup(self) -> None:
         self.progress.stage("Cleaning up", index=8)
         self.state.phase = "cleaning"
-        self._unmount_large_data()
         cache = self.paths.cache_dir / self.run_id
         import shutil
 

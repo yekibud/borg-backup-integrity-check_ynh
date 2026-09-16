@@ -18,6 +18,7 @@ Borg Backup Integrity regularly proves that your Borg backups are usable: it loc
 ## Documentation and resources
 
 * Admin documentation: [doc/ADMIN.md](doc/ADMIN.md)
+* Application compatibility (verified, known-broken, and what a package needs): [doc/APP_COMPATIBILITY.md](doc/APP_COMPATIBILITY.md)
 * Development notes: [DEVELOPMENT.md](DEVELOPMENT.md)
 * Upstream Borg: <https://www.borgbackup.org>
 

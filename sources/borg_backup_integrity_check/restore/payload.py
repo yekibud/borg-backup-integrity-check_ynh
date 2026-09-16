@@ -31,7 +31,7 @@ class PayloadRetriever:
         self.agent = agent
         self.include_sender = include_sender
 
-    def retrieve(self, cp: ComponentPlan, mounted: bool = False) -> PayloadOutcome:
+    def retrieve(self, cp: ComponentPlan) -> PayloadOutcome:
         comp = cp.component
         outcome = PayloadOutcome(samples=[])
         roots_spec = []
@@ -63,19 +63,11 @@ class PayloadRetriever:
         if not roots_spec:
             return outcome
         extracted: dict[str, bool] = {}
-        if mounted:
-            # The objects are already in place, served from the archive by the overlay; reading
-            # them through it is what the description step below does.
-            outcome.full_roots_ok = len(roots_spec) if cp.payload_mode == "full" else 0
-            for obj in objects:
-                extracted[obj.archive_path] = True
-            result: dict = {"roots": []}
-        else:
-            result = self.agent.call(
-                "extract-payload",
-                spec={"archive": comp.archive.name, "roots": roots_spec},
-                timeout=12 * 3600,
-            )
+        result = self.agent.call(
+            "extract-payload",
+            spec={"archive": comp.archive.name, "roots": roots_spec},
+            timeout=12 * 3600,
+        )
         for root_result in result.get("roots", []):
             if root_result.get("error"):
                 outcome.errors.append(

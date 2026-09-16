@@ -85,7 +85,7 @@ def build_plan(
         if comp.is_app:
             manifest_id = comp.app.manifest_id if comp.app else comp.id
             if comp.id in never_restore or manifest_id in never_restore:
-                plan.skipped.append((comp.id, "excluded for safety (backup tooling app)"))
+                plan.skipped.append((comp.id, "excluded by configuration (never restored)"))
                 continue
             if not select_all and comp.id not in selected and manifest_id not in selected:
                 plan.skipped.append((comp.id, "not selected"))

@@ -188,6 +188,7 @@ class RunReport:
     retained_host: RetainedHost | None = None
     fatal_error: str | None = None
     stages_completed: list[str] = field(default_factory=list)
+    excluded: list[tuple[str, str]] = field(default_factory=list)  # (component id, reason)
 
     # ---- derived ------------------------------------------------------
     @property
@@ -275,6 +276,7 @@ class RunReport:
             "cleanup_error": self.cleanup_error,
             "fatal_error": self.fatal_error,
             "stages_completed": list(self.stages_completed),
+            "excluded": [list(item) for item in self.excluded],
             "retained_host": None
             if not self.retained_host
             else {

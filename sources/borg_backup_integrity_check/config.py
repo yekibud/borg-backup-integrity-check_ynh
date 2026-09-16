@@ -43,7 +43,6 @@ DEFAULTS: dict[str, Any] = {
     "vm_ssh_port": 22022,
     "prefer_ipv6": False,
     "restore_mode": "sampled",
-    "large_data_mode": "mount",
     "sample_size": 20,
     "components": "all",
     "borg_check_level": "archives",

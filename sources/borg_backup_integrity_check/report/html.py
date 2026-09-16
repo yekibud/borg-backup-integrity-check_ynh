@@ -228,6 +228,17 @@ def render_html(report: RunReport) -> str:
             f"so the live server was never contacted.</div>"
         )
         parts.extend(_component_card(component) for component in report.components)
+    if report.excluded:
+        rows = "".join(
+            f'<tr><td style="padding:3px 10px 3px 0;white-space:nowrap">{escape(comp_id)}</td>'
+            f'<td style="padding:3px 0;{MUTED}">{escape(reason)}</td></tr>'
+            for comp_id, reason in report.excluded
+        )
+        parts.append(
+            f'<div style="{CARD}"><div style="font-weight:600;margin:0 0 6px">Not checked '
+            f"(excluded by configuration)</div>"
+            f'<table style="width:100%;border-collapse:collapse">{rows}</table></div>'
+        )
     if report.retained_host:
         host = report.retained_host
         parts.append(

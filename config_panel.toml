@@ -240,16 +240,6 @@ name.fr = "Échantillonnage"
         choices.repository = "Archive metadata + repository check"
         default = "archives"
 
-        [sampling.main.large_data_mode]
-        ask.en = "How the restore server gets large data"
-        ask.fr = "Accès du serveur de restauration aux données volumineuses"
-        help.en = "'Mount' serves photo/mail/file trees straight from the backup over a read-only overlay: the applications see all of their data while only what is read is fetched. 'Sample' extracts the newest objects only (needed when the restore server cannot mount). A full restore always extracts everything for real."
-        help.fr = "« Monter » sert les données directement depuis la sauvegarde via un montage en lecture seule : les applications voient toutes leurs données et seul ce qui est lu est téléchargé. « Échantillon » n'extrait que les objets les plus récents."
-        type = "select"
-        choices.mount = "Mount from the backup (recommended)"
-        choices.sample = "Extract a sample only"
-        default = "mount"
-
         [sampling.main.deep_check]
         ask.en = "Dry-run extraction (reads and verifies data without storing it)"
         ask.fr = "Extraction à blanc (lit et vérifie les données sans les stocker)"
@@ -556,7 +546,7 @@ name.fr = "Avancé"
         [advanced.main.never_restore_apps]
         ask.en = "Apps never restored on the test server"
         ask.fr = "Applications jamais restaurées sur le serveur de test"
-        help.en = "Comma separated app ids. Backup tooling is excluded so the test server can never write into your real repository."
+        help.en = "Comma separated app ids. Backup tooling is excluded so the test server can never write into your real repository; add applications that are known not to be restorable on a clean machine (see doc/APP_COMPATIBILITY.md) to keep them out of the report."
         type = "string"
         default = "borg,borgserver,borg-backup-integrity-check"
 

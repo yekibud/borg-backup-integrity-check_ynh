@@ -33,20 +33,6 @@ Key design decisions:
 * **One configuration model.** Install questions and config panel options are the same setting ids; the Python side only reads `settings.yml`. Secrets go through `borg-backup-integrity-check secret set NAME --stdin` (stdin, never argv) into a 0600 root file. Config-panel password fields use `bind = "null"` + `set__` setters; blank (or the literal `None` the core sends for untouched password inputs) keeps the stored value.
 * **Sparse core restore through YunoHost itself.** On the disposable host, `host_helper restore-core` extracts an archive minus its large roots (keeping skeleton dirs with their ownership), rewrites `info.json` sizes (YunoHost checks free disk against them), rebuilds a `.tar` in `/home/yunohost.backup/archives/` and runs `yunohost backup restore`. Payload (sampled or full) is then extracted directly into the live paths with ancestor directory items for ownership.
 * **Restore-host hazards handled** (learned from upstream sources): after a system restore `regen_conf()` moves sshd to the production port with `PermitRootLogin no` for public addresses and rebuilds nftables from the restored `firewall.yml` -> a dedicated maintenance sshd (cloud-init, port 22022) + `yunohost firewall open` after every restore; restored DynDNS keys would re-point the production domain -> `/etc/hosts` block + key/cron removal; restored postfix relay could send as production -> error transport; restored `borg`/`borgserver`/self apps are never restored and borg timers are disabled on the host.
-* **Large data is mounted, not extracted - after the restore, never before.** The restore host runs
-  `borg mount` on the component's archive and overlays each large root onto its live path (lower = the
-  archive, upper = local disk) once `yunohost backup restore` has finished for that component, then
-  restarts its services. Mounting first looks tempting and breaks the restore: `ynh_restore` moves an
-  existing live path aside and `mv` cannot remove a mount point (`Device or resource busy`), which cost
-  forgejo and nextcloud a full run. Because the mount is absent during the restore, the sparse tar
-  still has to carry the small plumbing files an app's restore script reads (immich chowns
-  `backups/restore_immich_db_backup.sh`, which sits next to ~25 GB of database dumps: the directory is
-  too big to keep whole, the file is kept on its own). Measured on a real 53 GB / 173k-file Immich archive over a Hetzner Storage Box:
-  full metadata walk 24 s, `chown -R` (which immich's restore does) 1m44s with an 828 MB upper layer -
-  `metacopy=on` is what keeps that from copying up the whole tree, so the helper enables it.
-  Mounts are always released at the end of a run, retained hosts included: an open archive mount holds
-  a lock on the production repository. `large_data_mode = sample` restores the previous behaviour, and
-  a host that cannot mount falls back to it automatically with a warning.
 * **Generic first.** Nothing in the core references Nextcloud/Immich/Roundcube/Hetzner specifically; profiles and providers are plug-ins behind small contracts.
 * **Never overstate.** Every sampled object carries a `VerificationLevel`; the report distinguishes EXTRACTED AND READABLE from REFERENCED BY APPLICATION (name found in the restored DB) and VERIFIED THROUGH APPLICATION (e.g. Dovecot search by Message-ID).
 
@@ -101,11 +87,14 @@ including a 256 GB / 276k-file Nextcloud, Immich, Synapse, Forgejo, ...). Findin
 
 ## Known gaps / open questions
 
-* **Evidence is weaker when read through the mount (unresolved).** In the first mounted run, mail
-  samples lost their subjects/senders, a git repository lost its commit info, and Dovecot confirmed
-  0/20 messages instead of 14/20, although the objects were reported readable. Compare one sampled
-  object read through the overlay with the same object extracted, on a retained host, before trusting
-  mounted runs for verification quality.
+* **FUSE-mounted large data was tried and dropped (Sept 2026).** `borg mount` + an overlay per large
+  root works on its own (53 GB / 173k-file Immich archive: metadata walk 24 s, `chown -R` 1m44s with an
+  828 MB upper layer thanks to `metacopy=on`), but it cannot replace the truncation rules: `ynh_restore`
+  moves an existing live path aside and `mv` cannot remove a mount point, so the mount can only go on
+  *after* the app's restore - at which point the restore script has already run without its data. In
+  real runs it also broke nextcloud and degraded evidence (Dovecot 0/20 instead of 14/20, mail subjects
+  and git commit info lost). Sampled extraction stays the only mechanism; do not resurrect the mount
+  without fixing both.
 
 * **Upstream bug (YunoHost 12.1.41.2):** a `password`-type install question hidden by a `visible` condition makes `app_install` crash (`TypeError ... NoneType` in `Popen` env: the core re-injects every password option into the script env without checking for `None`). Workaround in this app: a single always-visible `provider_token` question (stored under the selected provider's name by the install script) and an always-visible optional `borg_passphrase`. Worth reporting upstream (`src/app.py`, "Reinject user-provider passwords").
 
