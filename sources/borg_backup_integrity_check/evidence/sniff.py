@@ -33,10 +33,18 @@ _SIGNATURES: list[tuple[bytes, int, str, str]] = [
     (b"\x7fELF", 0, "binary", "application/x-executable"),
 ]
 
-_EMAIL_HEADER_RE = re.compile(
-    rb"^(From |(?:Received|Return-Path|Delivered-To|From|To|Subject|Date|Message-ID|MIME-Version|X-[A-Za-z0-9-]+):)",
-    re.I,
-)
+# A stored message does not always start with a header we recognise: DKIM, ARC and
+# Authentication-Results are commonly prepended at delivery. Accept any RFC 5322 header block that
+# carries one of the headers every message has.
+_HEADER_LINE_RE = re.compile(rb"^[A-Za-z][A-Za-z0-9-]*:")
+_EMAIL_HEADER_RE = re.compile(rb"^(From |(?:From|To|Subject|Date|Message-ID):)", re.I)
+
+
+def _looks_like_email(header: bytes, lines_scanned: int = 40) -> bool:
+    lines = header.split(b"\n", lines_scanned)[:lines_scanned]
+    if not lines or not (_HEADER_LINE_RE.match(lines[0]) or lines[0].startswith(b"From ")):
+        return False
+    return any(_EMAIL_HEADER_RE.match(line) for line in lines)
 
 
 @dataclass(frozen=True)
@@ -76,7 +84,7 @@ def sniff_bytes(header: bytes, name: str = "") -> ContentType:
         return ContentType("video", "video/mp4")
     if header[:2] == b"PK":
         return _sniff_zip(name, header)
-    if _EMAIL_HEADER_RE.match(header):
+    if _looks_like_email(header):
         return ContentType("email", "message/rfc822")
     if header.startswith(b"{\\rtf"):
         return ContentType("document", "application/rtf")

@@ -10,6 +10,7 @@ from .git import extract_git_repo
 from .image import extract_image
 from .models import Evidence
 from .sniff import sniff_path
+from .tampering import content_alarm
 from .video import extract_media
 
 READ_PROBE_BYTES = 64 * 1024
@@ -91,6 +92,9 @@ class EvidenceExtractor:
         else:
             evidence = Evidence(kind=ct.kind, title=path.name, when=mtime, mime=ct.mime, size=size)
         evidence.path = display_path or str(path)
+        alarm = content_alarm(path, ct, size)
+        if alarm:
+            evidence.details["content_alarm"] = alarm
         return evidence
 
 

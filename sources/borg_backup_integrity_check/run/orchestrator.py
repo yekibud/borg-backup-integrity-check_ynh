@@ -44,6 +44,7 @@ from ..report.models import (
     FAIL,
     PASS,
     SKIPPED,
+    WARN,
     CheckResult,
     ComponentReport,
     RetainedHost,
@@ -716,6 +717,16 @@ class IntegrityRun:
                     status,
                     f"{outcome.full_roots_ok} data root(s) restored completely",
                     VerificationLevel.OBJECT_EXTRACTED,
+                )
+            suspicious = report.suspicious_samples
+            if suspicious:
+                # Encrypted-in-place data still backs up perfectly; only the content says otherwise.
+                report.add_check(
+                    "Content check",
+                    WARN,
+                    f"{len(suspicious)} of {len(report.samples)} sampled objects no longer look "
+                    f"like their name says ({suspicious[0].evidence.details['content_alarm']})",
+                    VerificationLevel.OBJECT_READABLE,
                 )
             report.data_kind = _data_kind(report)
 

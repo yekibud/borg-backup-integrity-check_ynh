@@ -27,6 +27,7 @@ CHECK_KINDS = {
     "Login endpoint": "login",
     "Database restore": "database",
     "Mail server access": "mail",
+    "Content check": "content",
 }
 # A restore that dies provisioning packages is a different problem from a restore that dies on
 # the backup's content: it fails the same way on any clean machine, backup or no backup.
@@ -337,6 +338,8 @@ def _sample_line(sample) -> str:
         text = f"{when}    {rel}{extra}"
     if not sample.ok:
         text += f"    !! {sample.error or ev.error or 'unreadable'}"
+    elif ev.details.get("content_alarm"):
+        text += f"    !! {ev.details['content_alarm']}"
     elif sample.level >= VerificationLevel.REFERENCED_BY_APPLICATION:
         text += (
             "    [app]"

@@ -98,6 +98,11 @@ class ComponentReport:
         return sum(1 for s in self.samples if s.ok)
 
     @property
+    def suspicious_samples(self) -> list[SampleResult]:
+        """Objects that no longer look like what they claim to be (ransomware leaves these)."""
+        return [s for s in self.samples if s.evidence.details.get("content_alarm")]
+
+    @property
     def max_level(self) -> VerificationLevel:
         levels = [c.level for c in self.checks] + [s.level for s in self.samples]
         return max(levels) if levels else VerificationLevel.NOT_CHECKED

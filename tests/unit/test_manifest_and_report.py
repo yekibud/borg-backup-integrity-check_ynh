@@ -11,6 +11,7 @@ from borg_backup_integrity_check.manifest.models import (
 from borg_backup_integrity_check.report.models import (
     FAIL,
     PASS,
+    WARN,
     ComponentReport,
     RetainedHost,
     RunReport,
@@ -336,3 +337,30 @@ def test_dependency_failures_are_named_as_such_and_exclusions_are_shown():
     assert "synapse" in text and "dependencies" in text
     assert "filebox" in text and "core restore" in text
     assert "NOT CHECKED (excluded by configuration)" in text and "jitsi" in text
+
+
+def test_a_suspicious_sample_is_flagged_in_the_report():
+    component = ComponentReport(id="nextcloud", label="nextcloud", kind="app", data_kind="file")
+    evidence = Evidence(
+        "image",
+        "IMG_2031.jpg",
+        T0,
+        details={
+            "relative_path": "data/tony/files/Media/IMG_2031.jpg",
+            "content_alarm": "named .jpg but its content is not image and does not compress (encrypted?)",
+        },
+    )
+    component.samples.append(
+        SampleResult(evidence, VerificationLevel.OBJECT_READABLE, "apps/nextcloud/backup/x.jpg")
+    )
+    component.add_check(
+        "Content check", WARN, "1 of 1 sampled objects no longer look like their name says"
+    )
+    component.finalize()
+    report = RunReport(run_id="r", mode="sampled", started_at=T0, backup_time=T0)
+    report.components.append(component)
+    text = render_report(report)
+
+    assert component.suspicious_samples and component.status == "WARN"
+    assert "does not compress (encrypted?)" in text
+    assert "content" in text  # named as its own kind in the headline, not "core restore"

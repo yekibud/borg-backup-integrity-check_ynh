@@ -181,3 +181,49 @@ def test_unreadable_missing_and_empty_objects(tmp_path):
     corrupt.write_bytes(b"\xff\xd8\xff" + b"\x00" * 10)
     ev = EvidenceExtractor().describe(corrupt)
     assert ev.kind == "image" and ev.readable and "width" not in ev.details
+
+
+def test_a_message_whose_first_header_is_dkim_or_arc_is_still_mail():
+    """Real deliveries put ARC/DKIM/Authentication-Results first; the old rule only saw Return-Path."""
+    message = (
+        b"ARC-Seal: i=1; a=rsa-sha256; t=1789539425; cv=none;\n"
+        b"Authentication-Results: opensourceit.org; dkim=pass\n"
+        b"DKIM-Signature: v=1; a=rsa-sha256; d=example.org;\n"
+        b"From: Alice <alice@example.org>\n"
+        b"Subject: Weekend plans\n"
+        b"Date: Tue, 15 Sep 2026 23:17:00 +0200\n"
+        b"\nbody\n"
+    )
+    assert sniff_bytes(message, "1789539425.M486049P3134941,S=84609:2,").kind == "email"
+    assert sniff_bytes(b"Return-Path: <a@b>\nSubject: x\n\nbody\n").kind == "email"
+    assert sniff_bytes(b"X-Spam: no\nX-Other: 1\n\nnot a message\n").kind != "email"
+    assert sniff_bytes(b"just some text\nwith lines\n").kind != "email"
+
+
+def test_content_alarm_flags_encrypted_looking_objects(tmp_path):
+    """A ransomware rewrite keeps the name; the bytes stop matching it and stop compressing."""
+    import os
+
+    from borg_backup_integrity_check.evidence.extractors import EvidenceExtractor
+    from borg_backup_integrity_check.evidence.sniff import sniff_path
+    from borg_backup_integrity_check.evidence.tampering import content_alarm
+
+    def alarm(path):
+        return content_alarm(path, sniff_path(path), path.stat().st_size)
+
+    encrypted = tmp_path / "IMG_2031.jpg"
+    encrypted.write_bytes(os.urandom(256 * 1024))
+    genuine = tmp_path / "IMG_2032.jpg"
+    genuine.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 200_000 + b"\xff\xd9")
+    notes = tmp_path / "notes.txt"
+    notes.write_bytes(b"plain words repeated many times.\n" * 500)
+    opaque = tmp_path / "89f258347a755a8b2ecdbb6abdefae8893c348"  # a git object: no extension
+    opaque.write_bytes(os.urandom(64 * 1024))
+
+    assert "content is not image" in alarm(encrypted) and "encrypted?" in alarm(encrypted)
+    assert alarm(genuine) is None
+    assert alarm(notes) is None
+    assert alarm(opaque) is None, "unidentified but unnamed objects must not raise noise"
+
+    assert EvidenceExtractor().describe(encrypted).details.get("content_alarm")
+    assert EvidenceExtractor().describe(genuine).details.get("content_alarm") is None
