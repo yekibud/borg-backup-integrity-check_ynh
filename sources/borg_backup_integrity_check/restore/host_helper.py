@@ -910,22 +910,52 @@ def _http_probe(url: str, domain: str) -> dict:
     }
 
 
+def _postgres_ports() -> list[str]:
+    """Every running cluster, default first: apps like immich run their own on another port."""
+    proc = sh(["pg_lsclusters", "--no-header"], timeout=60)
+    ports = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        # version cluster port status owner datadir logfile
+        fields = line.split()
+        if len(fields) >= 4 and fields[2].isdigit() and fields[3] == "online":
+            ports.append(fields[2])
+    return sorted(set(ports), key=lambda port: (port != "5432", port))
+
+
+def _psql_count(db_name: str, port: str | None = None) -> subprocess.CompletedProcess:
+    return sh(
+        ["sudo", "-u", "postgres", "psql", "-tA"]
+        + (["-p", port] if port else [])
+        + [
+            "-d",
+            db_name,
+            "-c",
+            "select count(*) from pg_tables where schemaname='public'",
+        ],
+        timeout=120,
+    )
+
+
+def _postgres_port_for(db_name: str) -> str | None:
+    """Port of the cluster holding this database, or None when the default cluster has it."""
+    if _psql_count(db_name).returncode == 0:
+        return None
+    for port in _postgres_ports():
+        if _psql_count(db_name, port).returncode == 0:
+            return port
+    return None
+
+
 def _db_probe(db_type: str, db_name: str) -> dict:
     if db_type == "postgresql":
-        proc = sh(
-            [
-                "sudo",
-                "-u",
-                "postgres",
-                "psql",
-                "-tA",
-                "-d",
-                db_name,
-                "-c",
-                "select count(*) from pg_tables where schemaname='public'",
-            ],
-            timeout=120,
-        )
+        proc = _psql_count(db_name)
+        if proc.returncode != 0 and b"does not exist" in proc.stderr:
+            # The database lives in another cluster (immich installs its own): look for it.
+            for port in _postgres_ports():
+                candidate = _psql_count(db_name, port)
+                if candidate.returncode == 0:
+                    proc = candidate
+                    break
     else:
         proc = sh(
             [
@@ -955,7 +985,13 @@ def _db_references(db_type: str, db_name: str, names: list[str]) -> list[str]:
         names_file = fh.name
     try:
         if db_type == "postgresql":
-            dump = "sudo -u postgres pg_dump --data-only " + shlex.quote(db_name)
+            port = _postgres_port_for(db_name)
+            dump = (
+                "sudo -u postgres pg_dump "
+                + (f"-p {port} " if port else "")
+                + "--data-only "
+                + shlex.quote(db_name)
+            )
         else:
             dump = "mysqldump --no-create-info --skip-triggers --skip-comments " + shlex.quote(
                 db_name

@@ -263,3 +263,34 @@ def test_nothing_is_touched_when_the_restore_added_nothing(tmp_path):
 
     assert host_helper.revert_apt_sources(before, dirs) == []
     assert (dirs[0] / "yunohost.sources").exists()  # deb822 files are covered like any other
+
+
+def test_postgres_ports_lists_online_clusters_default_first(monkeypatch):
+    listing = (
+        "15  main 5432 online postgres /var/lib/postgresql/15/main /var/log/pg15.log\n"
+        "16  immich 5433 online postgres /var/lib/postgresql/16/immich /var/log/pg16.log\n"
+        "14  old 5434 down postgres /var/lib/postgresql/14/old /var/log/pg14.log\n"
+    )
+    monkeypatch.setattr(
+        host_helper,
+        "sh",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, listing.encode(), b""),
+    )
+    assert host_helper._postgres_ports() == ["5432", "5433"]
+
+
+def test_db_probe_finds_a_database_in_another_cluster(monkeypatch):
+    """immich runs its own PostgreSQL on 5433; the default cluster has no such database."""
+    listing = b"15  main 5432 online postgres /d /l\n16  immich 5433 online postgres /d /l\n"
+
+    def fake_sh(cmd, **kwargs):
+        if cmd[0] == "pg_lsclusters":
+            return subprocess.CompletedProcess(cmd, 0, listing, b"")
+        if "-p" in cmd and cmd[cmd.index("-p") + 1] == "5433":
+            return subprocess.CompletedProcess(cmd, 0, b"42\n", b"")
+        return subprocess.CompletedProcess(cmd, 2, b"", b'FATAL:  database "immich" does not exist')
+
+    monkeypatch.setattr(host_helper, "sh", fake_sh)
+    result = host_helper._db_probe("postgresql", "immich")
+
+    assert result["ok"] and result["tables"] == 42 and result["error"] is None
