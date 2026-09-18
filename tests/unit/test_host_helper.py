@@ -294,3 +294,22 @@ def test_db_probe_finds_a_database_in_another_cluster(monkeypatch):
     result = host_helper._db_probe("postgresql", "immich")
 
     assert result["ok"] and result["tables"] == 42 and result["error"] is None
+
+
+def test_quarantine_stops_fail2ban_so_the_checker_is_not_banned(tmp_path, monkeypatch):
+    commands = []
+
+    def fake_sh(cmd, **kwargs):
+        commands.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n")
+    monkeypatch.setattr(host_helper, "sh", fake_sh)
+    monkeypatch.setattr(host_helper.shutil, "which", lambda name: None)
+    monkeypatch.setattr(host_helper, "Path", lambda p: hosts if str(p) == "/etc/hosts" else Path(p))
+    ns = type("NS", (), {"domains": "example.org", "ssh_port": None})()
+    result = host_helper.cmd_quarantine(ns)
+
+    assert "fail2ban stopped" in result["actions"]
+    assert ["systemctl", "disable", "--now", "fail2ban"] in commands

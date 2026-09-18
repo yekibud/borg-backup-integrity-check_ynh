@@ -63,6 +63,7 @@ class SSHSession:
         user: str = "root",
         connect_timeout: int = 20,
         connect_retries: int = 4,
+        connect_retry_budget: float = 600.0,
     ) -> None:
         self.host = host
         self.port = port
@@ -71,6 +72,9 @@ class SSHSession:
         self.user = user
         self.connect_timeout = connect_timeout
         self.connect_retries = connect_retries
+        # A restore bounces sshd, nftables and the network several times; what matters is how long
+        # we are prepared to wait for the host to come back, not how many times we ask.
+        self.connect_retry_budget = connect_retry_budget
 
     @property
     def target(self) -> str:
@@ -123,6 +127,8 @@ class SSHSession:
         args = self.base_args() + [self.target, remote]
         log.debug("ssh %s: %s", self.host, redact(command)[:300])
         retries = self.connect_retries if connect_retries is None else connect_retries
+        budget = 0.0 if retries == 0 else self.connect_retry_budget
+        waited = 0.0
         attempt = 0
         while True:
             try:
@@ -142,19 +148,22 @@ class SSHSession:
                 break
             # Restoring a YunoHost bounces sshd, the firewall and the network; a connection
             # that never reached the command is worth waiting out rather than losing the run.
-            if attempt >= retries or not is_connect_phase_failure(result.stderr):
+            delay = min(5 * 3**attempt, 30)
+            if not is_connect_phase_failure(result.stderr) or waited + delay > budget:
+                waited_for = f" after waiting {int(waited)}s for it" if waited else ""
                 raise RestoreHostError(
-                    f"ssh connection to {self.host}:{self.port} failed: {result.stderr.strip()[-300:]}"
+                    f"ssh connection to {self.host}:{self.port} failed{waited_for}: "
+                    f"{result.stderr.strip()[-300:]}"
                 )
-            delay = min(5 * 3**attempt, 60)
+            waited += delay
             attempt += 1
             log.warning(
-                "ssh to %s:%s was refused before the command ran (%s); retry %d/%d in %ds",
+                "ssh to %s:%s was refused before the command ran (%s); retry %d (budget %ds) in %ds",
                 self.host,
                 self.port,
                 result.stderr.strip()[-160:],
                 attempt,
-                retries,
+                int(budget),
                 delay,
             )
             time.sleep(delay)

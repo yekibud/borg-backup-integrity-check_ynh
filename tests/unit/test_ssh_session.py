@@ -45,12 +45,18 @@ def test_connection_reset_before_the_command_is_retried(session):
     assert sleeps == [5, 15]  # the restore host is given time to finish restarting sshd
 
 
-def test_retries_are_bounded_and_then_reported(session):
-    ssh, calls, _, responses = session
-    responses += [_Proc(255, b"", KEX_RESET) for _ in range(5)]
-    with pytest.raises(RestoreHostError, match="kex_exchange_identification"):
+def test_retrying_is_bounded_by_a_time_budget_then_reported(session):
+    """A restore can bounce sshd for minutes; what bounds the wait is time, not a retry count."""
+    ssh, calls, sleeps, responses = session
+    responses += [_Proc(255, b"", KEX_RESET) for _ in range(200)]
+    ssh.connect_retry_budget = 600
+
+    with pytest.raises(RestoreHostError, match="after waiting"):
         ssh.run("hostname")
-    assert len(calls) == 5  # the first attempt plus connect_retries
+
+    assert sum(sleeps) <= 600 and sum(sleeps) > 500, "the whole budget is used before giving up"
+    assert len(calls) > 5, "a two-minute outage no longer loses the run"
+    assert max(sleeps) == 30, "backoff is capped so the host is polled steadily"
 
 
 def test_a_session_that_dies_mid_command_is_not_repeated(session):

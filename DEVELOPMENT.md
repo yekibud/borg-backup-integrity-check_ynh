@@ -87,6 +87,12 @@ including a 256 GB / 276k-file Nextcloud, Immich, Synapse, Forgejo, ...). Findin
 
 ## Known gaps / open questions
 
+* **A restore host that stops answering ssh ends the run.** Connect-phase failures (the command
+  provably never ran) are retried within a 10-minute budget with capped backoff, and quarantine now
+  stops the restored fail2ban - it watches the maintenance sshd and this check opens hundreds of
+  connections from one address. A host that is gone for longer still aborts the whole run instead of
+  failing only the component in flight.
+
 * **FUSE-mounted large data was tried and dropped (Sept 2026).** `borg mount` + an overlay per large
   root works on its own (53 GB / 173k-file Immich archive: metadata walk 24 s, `chown -R` 1m44s with an
   828 MB upper layer thanks to `metacopy=on`), but it cannot replace the truncation rules: `ynh_restore`

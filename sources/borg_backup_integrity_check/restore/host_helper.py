@@ -372,6 +372,10 @@ def cmd_quarantine(ns: argparse.Namespace) -> dict:
         actions.append("postfix sink")
     for unit in ("borg.timer", "borg.service"):
         sh(["systemctl", "disable", "--now", unit], timeout=60)
+    # The restored fail2ban watches the maintenance sshd too, and this check opens hundreds of
+    # connections from one address during a run: banned, the run loses the host it is testing.
+    if sh(["systemctl", "disable", "--now", "fail2ban"], timeout=120).returncode == 0:
+        actions.append("fail2ban stopped")
     for app_dir in (
         Path("/etc/yunohost/apps").glob("borg*") if Path("/etc/yunohost/apps").is_dir() else []
     ):
