@@ -26,6 +26,10 @@ class Thresholds:
     min_files_for_pct: int = 200
     db_dump_shrink_pct: float = 50.0
     max_backup_age_hours: float = 36.0
+    # A one-off change (someone deleted old dumps) keeps differing from a 7- or 30-day median long
+    # after it happened. Once the last few backups agree with each other, it is history, not drift.
+    settled_pct: float = 5.0
+    settled_runs: int = 3
 
 
 @dataclass
@@ -261,6 +265,16 @@ class ManifestComparator:
                     )
                 )
 
+    def _has_settled(self, comp_id: str, current_size: int, window: list) -> bool:
+        """True when the last few backups already agree with the current size."""
+        recent = sorted(window, key=lambda m: m.backup_time)[-self.t.settled_runs :]
+        values = [m.components[comp_id].logical_size for m in recent if comp_id in m.components]
+        if len(values) < self.t.settled_runs:
+            return False
+        return all(
+            abs(pct_change(current_size, value) or 0.0) <= self.t.settled_pct for value in values
+        )
+
     def _rolling(
         self, current: BackupManifest, history: list[BackupManifest], days: int, cmp: Comparison
     ) -> None:
@@ -283,7 +297,20 @@ class ManifestComparator:
             row = BaselineRow(
                 label, "size", metrics.logical_size, baseline, days, change, len(values)
             )
-            if change is not None and baseline >= self.t.min_bytes_for_pct:
+            settled = self._has_settled(comp_id, metrics.logical_size, window)
+            if change is not None and baseline >= self.t.min_bytes_for_pct and settled:
+                direction = "above" if change > 0 else "below"
+                note = (
+                    f"{label} is {format_pct(abs(change), signed=False)} {direction} its rolling "
+                    f"baseline but has matched the last {self.t.settled_runs} backups: a one-off "
+                    "change, not drift."
+                )
+                if (
+                    abs(change) >= min(self.t.growth_pct, self.t.shrink_pct)
+                    and note not in cmp.notes
+                ):
+                    cmp.notes.append(note)
+            elif change is not None and baseline >= self.t.min_bytes_for_pct:
                 if change >= self.t.growth_pct:
                     row.anomaly = Anomaly(
                         "warning",

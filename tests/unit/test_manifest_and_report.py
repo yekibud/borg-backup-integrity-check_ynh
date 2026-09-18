@@ -364,3 +364,36 @@ def test_a_suspicious_sample_is_flagged_in_the_report():
     assert component.suspicious_samples and component.status == "WARN"
     assert "does not compress (encrypted?)" in text
     assert "content" in text  # named as its own kind in the headline, not "core restore"
+
+
+def test_a_settled_step_change_is_a_note_not_a_warning():
+    """immich: 25 GB of stale dumps deleted once, then stable - it warned that day, not for a month."""
+    old_size, new_size = 59_100_000_000, 32_800_000_000
+    history = [
+        _manifest(T0 - timedelta(days=d), {"immich": (old_size, 168_000)}) for d in range(4, 10)
+    ] + [_manifest(T0 - timedelta(days=d), {"immich": (new_size, 168_000)}) for d in (1, 2, 3)]
+    cur = _manifest(T0, {"immich": (new_size, 168_000)})
+
+    cmp = ManifestComparator().compare(
+        cur, history[-1], history=history, now=T0 + timedelta(hours=1)
+    )
+
+    assert not cmp.warnings, "a change that has been stable for days is not news every day"
+    assert any("one-off change, not drift" in note for note in cmp.notes)
+    assert any(r.days == 7 and r.change_pct and r.change_pct < -20 for r in cmp.baseline_rows)
+
+
+def test_a_component_that_keeps_shrinking_still_warns():
+    """Silent loss looks like this: a bit smaller every day, never enough to trip the daily check."""
+    sizes = [30_000_000_000 - day * 1_200_000_000 for day in range(9)]
+    history = [
+        _manifest(T0 - timedelta(days=9 - i), {"mail": (size, 54_000)})
+        for i, size in enumerate(sizes)
+    ]
+    cur = _manifest(T0, {"mail": (sizes[-1] - 1_200_000_000, 54_000)})
+
+    cmp = ManifestComparator().compare(
+        cur, history[-1], history=history, now=T0 + timedelta(hours=1)
+    )
+
+    assert any("baseline" in a.message for a in cmp.warnings), "drift must still be caught"
